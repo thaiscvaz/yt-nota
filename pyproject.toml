@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-nota"
+version = "0.1.0"
+description = "CLI que transforma transcripts do YouTube em notas Obsidian no vault da Thais"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Thais Vaz", email = "tvazdataengineer@gmail.com"}]
+license = {text = "MIT"}
+dependencies = [
+    "yt-dlp>=2025.0.0",
+    "anthropic>=0.40.0",
+    "python-frontmatter>=1.1.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.12.0",
+]
+
+[project.scripts]
+yt-nota = "yt_nota.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+yt_nota = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
