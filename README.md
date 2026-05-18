@@ -34,6 +34,22 @@ pip install -e .
 
 Não precisa de `.env` por padrão (vault path tem default). Se o seu vault está em outro lugar, copie `.env.example` pra `.env` e ajuste.
 
+### Setup em outra máquina
+
+A skill `/yt-sintese` vive em `~/.claude/skills/yt-sintese/` (fora do repo, no global do Claude Code). O repo guarda uma cópia canônica em `skills/yt-sintese/SKILL.md` e um instalador:
+
+**Windows (PowerShell):**
+```powershell
+pwsh scripts/install-skill.ps1
+```
+
+**Mac / Linux:**
+```bash
+bash scripts/install-skill.sh
+```
+
+Roda uma vez por máquina depois do clone. Quando atualizar a skill (edita `skills/yt-sintese/SKILL.md`), roda o instalador de novo pra propagar.
+
 ## Uso
 
 ```bash
