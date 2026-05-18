@@ -1,167 +1,113 @@
-# Plano: `yt-nota` — CLI Python para virar transcripts do YouTube em notas Obsidian
+# yt-nota — arquitetura e estado
+
+> **Status:** v0.2.0 funcionando fim a fim. Sem dependência de API paga.
 
 ## Contexto
 
-Thais consome YouTube como fonte de aprendizado e hoje faz manualmente: abre vídeo → "mais" → "Mostrar transcrição" → seleciona tudo → cola no Claude → pede nota. Funciona pra 1 vídeo, vira fricção pra 10. Já confia na qualidade da síntese (faz há tempo) e usa o vault Obsidian com estrutura PARA (`30-Recursos/Literatura/<Canal>/`) e channel cards em `30-Recursos/Notas/`.
+Thais consome YouTube como fonte de aprendizado. O fluxo manual hoje (abrir vídeo → "Mostrar transcrição" → copiar → colar no Claude → pedir nota) funciona pra um vídeo e vira fricção em batch.
 
-A dor real é **a extração manual + falta de batch**. Não é qualidade de síntese, não é onde a nota vai, é o tempo de copy-paste vezes N.
+A dor é **a extração manual + falta de batch**, não a qualidade da síntese (que ela já confia, fazendo via Claude). Objetivo: automatizar a extração e estruturar a síntese, **sem custo de API**.
 
-Solução: **CLI Python standalone** que automatiza extração (yt-dlp), chama a API Anthropic pra síntese, e escreve as notas no vault no mesmo padrão que ela já usa. Suporta single, lista, playlist, arquivo.
+## Solução em 2 passos
+
+1. **Terminal:** `yt-nota <url>` extrai metadata + transcript via yt-dlp e grava um draft em `<vault>/30-Recursos/Literatura/_drafts/`.
+2. **Claude Code:** `/yt-sintese` lê drafts pendentes, gera o body (7 seções), chama `yt-nota --finalize` que monta a nota final + transcript + channel card e deleta o draft.
+
+A síntese acontece dentro da sua sessão Claude Code (sem chamar API Anthropic externa). Custo extra: zero.
 
 ## Decisões fechadas
 
 | Decisão | Escolha |
 |---|---|
-| Interface | CLI Python standalone (`yt-nota` comando) |
-| Extração | `yt-dlp` (sem cookies por default; flag `--with-cookies` ativa `--cookies-from-browser chrome` quando precisar — vídeos restritos por idade/região) |
-| Síntese | Anthropic SDK Python, modelo `claude-opus-4-7` default, `--fast` pra sonnet-4-6 |
-| Input | URL única, múltiplas URLs, playlist, arquivo `.txt`, stdin |
+| Interface | CLI Python `yt-nota` + Claude Code skill `/yt-sintese` |
+| Extração | `yt-dlp` (Python API). Sem cookies por default. `--with-cookies` ativa `--cookies-from-browser chrome` para vídeos restritos. |
+| Síntese | Claude Code skill (zero custo); processa todos os drafts pendentes |
+| Input | URL única, múltiplas, `--playlist`, `--file`, `--stdin` |
 | Transcript bruto | Arquivo irmão `3-<id>-<slug>.transcript.md` |
-| Síntese | Frontmatter + 7 seções (em uma frase / o que defende / o que marcou / o que muda / dicionário / conexões / notas permanentes / referência) |
+| Nota síntese | 7 seções: em uma frase, o que defende, o que mais me marcou (citação + `[mm:ss]`), o que isso muda pra mim, dicionário (4-7 termos), notas permanentes a criar, referência |
 | Channel card | Auto-criado/atualizado em `30-Recursos/Notas/<Canal>.md` |
 | MOC temático | Só com `--tema X` (não auto-detecta) |
-| Vídeo sem transcript | Nota só com metadata + descrição |
-| Idioma | Transcript em idioma original, síntese sempre PT-BR. `--translate` traduz transcript |
-| Volume alvo | 1-3 esporádico (default), mas batch funciona até playlist inteira |
+| Vídeo sem transcript | Draft com metadata + descrição; síntese fica mais curta |
+| Idioma | Transcript fica no original. Síntese sempre PT-BR. |
+| Volume alvo | 1-3 esporádico (default); batch funciona até playlist inteira |
 
 ## Repositório
 
-- **Remote:** `https://github.com/thaiscvaz/yt-nota.git` (público, recém-criado, vazio)
+- **Remote:** `https://github.com/thaiscvaz/yt-nota.git`
 - **Local:** `C:\Users\thais\00_projetos\yt-nota\`
-- **Tudo versionado:** código, testes, prompts, plano (`docs/plan.md`), changelog, README. Nada fica solto fora do repo.
 
 ## Arquitetura
 
 ```
-C:\Users\thais\00_projetos\yt-nota\
-├── .git/                     # remote: github.com/thaiscvaz/yt-nota
-├── docs/
-│   └── plan.md               # cópia viva deste plano, evolui com o projeto
-├── pyproject.toml            # package metadata, dependencies, entry point
-├── README.md                 # uso, exemplos, troubleshooting
-├── .env.example              # ANTHROPIC_API_KEY
-├── .gitignore                # .venv, .env, __pycache__
+yt-nota/
+├── .git/
+├── docs/plan.md             # este arquivo
+├── pyproject.toml           # deps: yt-dlp, python-dotenv, PyYAML
+├── README.md
+├── .env.example             # YT_NOTA_VAULT opcional
+├── .gitignore
 ├── src/yt_nota/
 │   ├── __init__.py
-│   ├── __main__.py           # python -m yt_nota
-│   ├── cli.py                # argparse: single/multi/playlist/file/stdin
-│   ├── extractor.py          # yt-dlp wrapper (metadata + subs)
-│   ├── transcript.py         # VTT parse, dedup auto-captions, timestamps mm:ss
-│   ├── synthesizer.py        # Anthropic API call + prompt template
-│   ├── vault.py              # write 2 files (note + transcript), update channel card
-│   ├── slug.py               # title → slug ASCII
-│   ├── config.py             # vault path, model defaults (lê de env/config)
-│   └── prompts/
-│       └── synthesis.md      # template Markdown editável (Jinja2 vars)
+│   ├── __main__.py
+│   ├── cli.py               # argparse com 3 modos: extract (default), --finalize, --list
+│   ├── extractor.py         # yt-dlp wrapper (metadata + subs via httpx)
+│   ├── transcript.py        # VTT parser + dedup de auto-captions
+│   ├── vault.py             # write_draft, finalize_draft, channel card, MOC
+│   ├── slug.py              # title/canal → slug ASCII
+│   └── config.py            # vault path, dirs derivados
 └── tests/
-    ├── test_extractor.py     # mock yt-dlp response
-    ├── test_transcript.py    # VTT parsing edge cases
-    ├── test_vault.py         # frontmatter, file writes
-    └── fixtures/
-        └── sample_vtt.vtt
+    ├── test_transcript.py   # regressão do parser
+    ├── test_slug.py         # regressão dos slugs
+    └── fixtures/*.vtt
 ```
 
-## Dependências
+Skill global: `C:\Users\thais\.claude\skills\yt-sintese\SKILL.md` (não vive no repo do projeto, vive no `~/.claude` global).
+
+## Dependências (runtime)
 
 | Pacote | Por quê |
 |---|---|
-| `yt-dlp` | extração transcript+metadata (já instalado) |
-| `anthropic` | SDK pra síntese via API |
-| `python-frontmatter` | manipular frontmatter YAML em md |
-| `python-dotenv` | carregar `.env` |
-| `httpx` | retry/timeout robusto (já vem com anthropic SDK) |
-| dev: `pytest`, `pytest-mock` | testes |
+| `yt-dlp` | extração metadata + sub URLs |
+| `httpx` | baixa o VTT direto do CDN (vem com SDK Anthropic; aqui é usado direto) |
+| `python-dotenv` | carrega `.env` opcional pra `YT_NOTA_VAULT` |
+| `PyYAML` | parsing do frontmatter do draft no finalize |
 
-Sem requests (httpx é melhor), sem click (argparse é suficiente pra esse escopo), sem rich (output simples é OK pra CLI).
+Dev: `pytest`, `pytest-mock`.
+
+**Removido:** `anthropic` SDK (não chama API mais), `python-frontmatter` (PyYAML é suficiente).
 
 ## Comandos
 
 ```bash
-# Single
-yt-nota https://youtube.com/watch?v=xxx
-
-# Multi (args)
+# Extração (modo default)
+yt-nota <url>
 yt-nota url1 url2 url3
-
-# Playlist (yt-dlp expande)
-yt-nota --playlist https://youtube.com/playlist?list=PLxxx
-
-# Arquivo de fila
-yt-nota --file C:/Users/thais/Desktop/queue.txt
-
-# Stdin (cola URLs, Ctrl+Z+Enter no Windows)
+yt-nota --playlist <playlist_url>
+yt-nota --file queue.txt
 yt-nota --stdin
 
-# Opções globais
---tema "IA-e-Programacao"    # atualiza MOC específico
---translate                  # traduz transcript pra PT-BR (default: mantém)
---with-cookies               # usa cookies do Chrome (Chrome precisa estar fechado)
---model opus|sonnet          # default opus
---dry-run                    # extrai e mostra preview, não escreve
---no-channel-card            # pula update do channel card
---vault PATH                 # override path do vault
--v / --verbose               # log detalhado
+# Flags
+--tema X            # salva tema no draft, finalize atualiza MOC
+--with-cookies      # cookies do Chrome (Chrome precisa estar FECHADO)
+--dry-run           # preview sem escrever draft
+-v / --verbose
+
+# Operações
+yt-nota --list                                  # drafts pendentes
+yt-nota --finalize <draft> --body-file <body>   # chamado pela skill
 ```
 
-## Fluxo por vídeo
+## Fluxo end-to-end por vídeo
 
-1. **Extrair metadata** via `yt-dlp -j --skip-download <url>` (+ `--cookies-from-browser chrome` se `--with-cookies`)
-   - Captura: id, title, channel, channel_url, upload_date, duration, description, tags
-2. **Extrair transcript** via `yt-dlp --write-subs --write-auto-subs --sub-langs pt,pt-BR,en,en-US --sub-format vtt --skip-download <url>` (+ cookies se flag)
-   - Prefere manual subs > auto. Prefere pt > en > any.
-3. **Parsear VTT** em `transcript.py`:
-   - Strip header, tags inline (`<00:00:01.000>`, `<c>`)
-   - Dedup overlapping cues (problema clássico de auto-captions)
-   - Output: `[{t: "mm:ss", text: "..."}]`
-4. **Gerar slug**: `<title>` → ASCII lowercase, hífens, max 6 palavras
-5. **Sintetizar nota** em `synthesizer.py`:
-   - Carrega template `prompts/synthesis.md`
-   - Injeta: título, canal, data, duração, descrição, transcript completo
-   - Chama Anthropic API com modelo escolhido
-   - Recebe Markdown com frontmatter + 7 seções (formato `/ps-nota`)
-6. **Escrever arquivos** em `vault.py`:
-   - `<vault>/30-Recursos/Literatura/<Canal>/3-<id_temporal>-<slug>.md` (síntese)
-   - `<vault>/30-Recursos/Literatura/<Canal>/3-<id_temporal>-<slug>.transcript.md` (transcript)
-   - Frontmatter da síntese: `transcript_file: "[[3-<id>-<slug>.transcript]]"`
-7. **Atualizar channel card** `<vault>/30-Recursos/Notas/<Canal>.md`:
-   - Se não existe: cria com template (`tipo: card-vivo`, seção "Vídeos processados")
-   - Se existe: append linha em "Vídeos processados", atualiza `updated:` no frontmatter
-
-## Modelo de síntese (essência)
-
-Prompt instrui Claude a gerar nota com:
-
-- **Frontmatter** alinhado com `/ps-nota`: ID, tipo: literatura, subtipo: vídeo, título, autores (canal), ano, fonte: YouTube, url, canal, canal_url, duração, data-publicação, data-leitura, idioma_original, status: lido, tags, up: `[[<Canal>]]`, transcript_file: `[[<transcript>]]`
-- **Em uma frase** — tese central
-- **O que defende** — 3-5 pontos com nuance, citações pontuais
-- **O que mais me marcou** — blockquote com timestamp `[mm:ss]`
-- **O que isso muda pra mim** — aplicação à carreira/projetos da Thais
-- **Dicionário** — 4-7 termos técnicos explicados com analogia, ordem de aparição
-- **Conexões** — links a outras notas do vault (pode ficar vazio se não houver pista)
-- **Notas permanentes a criar** — 1-3 títulos atômicos pra extrair depois
-- **Referência** — formato CANAL. Título. YouTube, DD/MM/YYYY. URL.
-
-**Estilo (inegociável, vem do CLAUDE.md e feedback memories):**
-- Sem travessão "—"
-- Tom pessoal, não formal
-- Sem palavrão
-- Sem markers de IA ("vamos explorar", "esse vídeo traz")
-- PT-BR
-
-## Output do CLI
-
-Por vídeo, modo verbose:
-```
-[1/3] https://youtube.com/watch?v=xxx
-  ✓ Metadata extraído (Fabio Akita · 1h 23m · 2026-04-12)
-  ✓ Transcript pt-BR auto (1842 segmentos)
-  → Sintetizando com claude-opus-4-7...
-  ✓ Nota: 30-Recursos/Literatura/Fabio-Akita/3-20260516-akita-ia-projetos.md
-  ✓ Transcript: 3-20260516-akita-ia-projetos.transcript.md
-  ✓ Channel card atualizado
-```
-
-Modo silent (default): só os caminhos de arquivos criados, ou erros.
+1. `yt-nota <url>` chama `extract_info()` (yt-dlp Python API). Captura: id, title, channel, channel_url, upload_date, duration, description, tags, lista de subtitle URLs.
+2. `extract_transcript()` escolhe melhor sub (manual > auto, pt > en > qualquer), baixa VTT via httpx, parseia com `parse_vtt()`.
+3. `write_draft()` escreve em `_drafts/<id>-<slug>.draft.md` com frontmatter completo + descrição + transcript com `[mm:ss]`.
+4. Thais invoca `/yt-sintese` no Claude Code.
+5. Skill lista drafts (`yt-nota --list`), lê cada um, gera body (7 seções).
+6. Skill escreve body em arquivo temporário (`.venv/tmp_body_<id>.md`).
+7. Skill chama `yt-nota --finalize <draft> --body-file <tmp>`.
+8. `finalize_draft()` parseia frontmatter do draft, monta frontmatter final + header + body, escreve `3-<id>-<slug>.md`. Escreve transcript file. Cria/atualiza channel card. Deleta draft.
+9. Skill apaga o tmp body.
 
 ## Tratamento de falhas
 
@@ -169,59 +115,46 @@ Modo silent (default): só os caminhos de arquivos criados, ou erros.
 |---|---|
 | URL inválida | Skip, log warning, continua batch |
 | Vídeo privado/removido | Skip, log warning, continua batch |
-| Transcript indisponível | Cria nota só com metadata + descrição, marca `transcript: indisponivel` |
-| API Anthropic timeout/rate limit | Retry com backoff exponencial 3x (httpx) |
-| Slug colide com nota existente | Append sufixo timestamp |
+| Transcript indisponível | Draft com `transcript: indisponivel`. Síntese usa descrição. |
+| Slug colide com nota existente | Sufixo numérico (`-2`, `-3`, ...) |
 | Vault path não existe | Aborta com erro claro |
-| Vídeo restrito (idade/região) sem flag --with-cookies | Mensagem clara sugerindo rodar com --with-cookies (e fechar Chrome antes) |
-| Chrome aberto com --with-cookies (file lock) | Erro claro: "Feche o Chrome e rode de novo, ou rode sem --with-cookies" |
+| Vídeo restrito sem `--with-cookies` | Mensagem clara sugerindo rodar com `--with-cookies` |
+| Chrome aberto com `--with-cookies` (file lock) | Erro claro: feche Chrome ou rode sem |
 
-## Setup pra Thais (uma vez)
+## Setup (uma vez)
 
 ```bash
-cd C:/Users/thais/00_projetos
-git init yt-nota && cd yt-nota
-# (Eu crio os arquivos)
+git clone https://github.com/thaiscvaz/yt-nota.git C:/Users/thais/00_projetos/yt-nota
+cd C:/Users/thais/00_projetos/yt-nota
 python -m venv .venv
-.venv\Scripts\activate
+.venv/Scripts/activate
 pip install -e .
-cp .env.example .env
-# Editar .env: ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Depois: `yt-nota <url>` funciona globalmente (dentro do venv). Opcional: alias no PowerShell profile.
+Skill já está em `C:\Users\thais\.claude\skills\yt-sintese\`. Disponível em qualquer sessão Claude Code.
 
 ## Verificação (smoke test)
 
-1. `yt-nota https://www.youtube.com/watch?v=jYZ6RQay4QY` (URL teste que você passou)
-2. Verificar:
-   - Arquivo `30-Recursos/Literatura/<Canal>/3-<ts>-<slug>.md` criado com frontmatter completo + 7 seções
-   - Arquivo `.transcript.md` separado com timestamps `[mm:ss]`
-   - Channel card criado/atualizado em `30-Recursos/Notas/`
-   - Síntese em PT-BR, sem travessão, sem markers de IA
-3. `yt-nota url1 url2 url3` — verificar 3 notas geradas em paralelo
-4. `yt-nota --playlist <link>` — verificar expansão e processamento
-5. `yt-nota --dry-run <url>` — verificar preview sem escrita
-6. Edge case: vídeo sem transcript → verificar nota fallback com metadata
+Executado em 2026-05-18 com URL `https://www.youtube.com/watch?v=jYZ6RQay4QY`. Resultado:
 
-## Fase 2 (não vai entrar agora)
+- Draft criado: `_drafts/20260518164518-o-nicho-que-fez-esse-casal.draft.md`
+- Skill `/yt-sintese` processou em ~30s
+- Saída no vault:
+  - `30-Recursos/Literatura/STLFLIX-BR-Impressao-3D/3-20260518164518-o-nicho-que-fez-esse-casal.md`
+  - `3-20260518164518-o-nicho-que-fez-esse-casal.transcript.md`
+  - `30-Recursos/Notas/STLFLIX-BR-Impressao-3D.md` (novo card)
+- Draft auto-deletado
 
-- Browser MCP integration pra puxar "Curtidos" do YouTube logado
-- Watch folder (processa URLs adicionadas a um .txt automaticamente)
-- Skill `/yt-nota` no Claude Code que envolve o CLI (combo CLI + skill)
-- Whisper local pra vídeos sem captions (música, alguns shorts)
+16/16 testes passando.
 
-## Arquivos críticos a criar
+## Fase 2 (não no escopo atual)
 
-| Caminho | Função |
-|---|---|
-| `C:\Users\thais\00_projetos\yt-nota\pyproject.toml` | package + entry point `yt-nota` |
-| `C:\Users\thais\00_projetos\yt-nota\src\yt_nota\cli.py` | argparse, orquestração |
-| `C:\Users\thais\00_projetos\yt-nota\src\yt_nota\extractor.py` | yt-dlp wrapper |
-| `C:\Users\thais\00_projetos\yt-nota\src\yt_nota\transcript.py` | VTT parser robusto |
-| `C:\Users\thais\00_projetos\yt-nota\src\yt_nota\synthesizer.py` | Anthropic SDK call |
-| `C:\Users\thais\00_projetos\yt-nota\src\yt_nota\vault.py` | escrita no Obsidian |
-| `C:\Users\thais\00_projetos\yt-nota\src\yt_nota\prompts\synthesis.md` | template editável |
-| `C:\Users\thais\00_projetos\yt-nota\tests\test_transcript.py` | mínimo de regressão pra VTT |
+- Watch folder (processa URLs adicionadas a um `.txt` automaticamente)
+- Whisper local para vídeos sem captions (música, alguns shorts)
+- Flag `--api` opcional pra reativar Anthropic SDK se quiser automação total
+- Browser MCP pra puxar "Curtidos" / "Assistir mais tarde" do YouTube logado
 
-Sem documentação intermediária. README minimalista. Sem comentários supérfluos no código.
+## Histórico
+
+- v0.1.0 (2026-05-16): scaffold inicial com integração Anthropic API direta. Pipeline rodou até a chamada da API mas barrou em billing da conta da Thais.
+- v0.2.0 (2026-05-18): refatorado pra modo draft + skill `/yt-sintese`. Sem dependência de API paga. Smoke test passou fim a fim.

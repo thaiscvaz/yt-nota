@@ -1,4 +1,17 @@
-"""CLI principal do yt-nota."""
+"""CLI do yt-nota.
+
+Três modos, determinados por flags:
+
+- (default) `yt-nota <url>...` extrai metadata + transcript e escreve draft em
+  `<vault>/30-Recursos/Literatura/_drafts/`. A síntese acontece via skill
+  `/yt-sintese` no Claude Code (zero custo de API).
+
+- `yt-nota --finalize <draft.md>` lê o draft + body sintetizado (via --body-file
+  ou stdin), escreve nota final + transcript + channel card no vault, deleta o draft.
+  Chamado pela skill.
+
+- `yt-nota --list` lista drafts pendentes.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +21,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .config import DEFAULT_MODEL_ALIAS, MODELS, VAULT_PATH
+from .config import DRAFTS_DIR, VAULT_PATH
 from .extractor import (
     ExtractError,
     extract_info,
@@ -17,8 +30,7 @@ from .extractor import (
     normalize_video_info,
     playlist_video_urls,
 )
-from .synthesizer import synthesize
-from .vault import write_note
+from .vault import finalize_draft, list_pending_drafts, write_draft
 
 log = logging.getLogger("yt-nota")
 
@@ -29,7 +41,23 @@ def _setup_logging(verbose: bool) -> None:
         format="%(message)s",
         stream=sys.stderr,
     )
+    if not verbose:
+        for noisy in ("httpx", "httpcore", "yt_dlp"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
 
+
+def _rel(p: Path | None) -> str:
+    if p is None:
+        return ""
+    try:
+        return str(p.relative_to(VAULT_PATH))
+    except Exception:
+        return str(p)
+
+
+# ---------------------------------------------------------------------------
+# Modo extração
+# ---------------------------------------------------------------------------
 
 def _collect_urls(args: argparse.Namespace) -> list[str]:
     urls: list[str] = list(args.urls or [])
@@ -87,7 +115,7 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
 
     video = normalize_video_info(info)
     log.info(
-        "  Metadata: %s · %s · %s",
+        "  %s · %s · %s",
         video["channel"] or "canal desconhecido",
         video["duration_human"],
         video.get("upload_date_iso") or "sem data",
@@ -102,97 +130,144 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
             len(transcript["segments"]),
         )
     else:
-        log.info("  Transcript indisponível, sintetizando só com metadata")
-
-    log.info("  Sintetizando com %s...", args.model)
-    try:
-        body = synthesize(
-            video,
-            transcript["segments"] if transcript else None,
-            model_alias=args.model,
-            translate=args.translate,
-            tema=args.tema,
-        )
-    except Exception as e:
-        log.error("  Síntese falhou: %s", e)
-        return False
+        log.info("  Transcript indisponível")
 
     if args.dry_run:
-        sys.stdout.write("\n=== PREVIEW (dry-run) ===\n\n")
-        sys.stdout.write(body)
-        sys.stdout.write("\n\n=== fim do preview ===\n\n")
+        sys.stdout.write(f"\n=== PREVIEW {video['title']} ===\n\n")
+        sys.stdout.write(f"Canal: {video['channel']}\n")
+        sys.stdout.write(f"Duração: {video['duration_human']}\n")
+        if transcript:
+            sys.stdout.write(f"Transcript: {len(transcript['segments'])} segmentos\n")
+            for s in transcript["segments"][:5]:
+                sys.stdout.write(f"  [{s.t}] {s.text[:80]}\n")
+        sys.stdout.write("\n")
         return True
 
-    result = write_note(
+    draft_path = write_draft(
         video,
-        body,
         transcript["segments"] if transcript else None,
         transcript,
-        no_channel_card=args.no_channel_card,
         tema=args.tema,
     )
-
-    def _rel(p):
-        try:
-            return p.relative_to(VAULT_PATH)
-        except Exception:
-            return p
-
-    log.info("  Nota: %s", _rel(result["note_path"]))
-    if result["transcript_path"]:
-        log.info("  Transcript: %s", _rel(result["transcript_path"]))
-    if result["channel_card_path"]:
-        log.info("  Channel card: %s", _rel(result["channel_card_path"]))
-    if result["moc_path"]:
-        log.info("  MOC tema: %s", _rel(result["moc_path"]))
+    log.info("  Draft: %s", _rel(draft_path))
     return True
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="yt-nota",
-        description="Transforma transcripts do YouTube em notas Obsidian profundas.",
-    )
-    parser.add_argument("urls", nargs="*", help="URLs do YouTube")
-    parser.add_argument("--playlist", help="URL de playlist (expande pra vídeos)")
-    parser.add_argument("--file", help="Arquivo .txt com uma URL por linha")
-    parser.add_argument("--stdin", action="store_true", help="Lê URLs do stdin")
-    parser.add_argument("--tema", help="MOC temático (atualiza além do channel card)")
-    parser.add_argument("--translate", action="store_true", help="Pede tradução do transcript pra PT-BR na síntese")
-    parser.add_argument(
-        "--with-cookies",
-        action="store_true",
-        help="Usa cookies do Chrome (precisa estar FECHADO no Windows)",
-    )
-    parser.add_argument(
-        "--model",
-        choices=list(MODELS.keys()),
-        default=DEFAULT_MODEL_ALIAS,
-        help="Modelo Claude (default: %(default)s)",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="Não escreve, só mostra preview")
-    parser.add_argument("--no-channel-card", action="store_true", help="Pula atualização do channel card")
-    parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--version", action="version", version=f"yt-nota {__version__}")
-    args = parser.parse_args()
-
-    _setup_logging(args.verbose)
-
+def _cmd_extract(args: argparse.Namespace) -> int:
     urls = _collect_urls(args)
     if not urls:
-        parser.print_help()
-        sys.exit(1)
-
+        log.error("Sem URLs. Use `yt-nota <url>` ou --playlist/--file/--stdin.")
+        return 1
     urls = _expand_playlists(urls, args.with_cookies)
-    log.info("Processando %d vídeo(s)...\n", len(urls))
+    log.info("Processando %d vídeo(s)...", len(urls))
 
     successes = 0
     for i, url in enumerate(urls, 1):
         if _process_single(url, args, i, len(urls)):
             successes += 1
 
-    log.info("\n%d/%d processados com sucesso.", successes, len(urls))
-    sys.exit(0 if successes == len(urls) else 1)
+    log.info("\n%d/%d drafts criados.", successes, len(urls))
+    if successes:
+        pending = list_pending_drafts()
+        log.info(
+            "Drafts pendentes em %s (%d total). Invoque `/yt-sintese` no Claude Code pra processar.",
+            _rel(DRAFTS_DIR),
+            len(pending),
+        )
+    return 0 if successes == len(urls) else 1
+
+
+# ---------------------------------------------------------------------------
+# Modo finalize
+# ---------------------------------------------------------------------------
+
+def _cmd_finalize(args: argparse.Namespace) -> int:
+    draft = Path(args.finalize)
+    if not draft.exists():
+        log.error("Draft não encontrado: %s", draft)
+        return 1
+
+    if args.body_file:
+        body = Path(args.body_file).read_text(encoding="utf-8")
+    else:
+        body = sys.stdin.read()
+
+    if not body.strip():
+        log.error("Body de síntese vazio. Passe via --body-file ou stdin.")
+        return 1
+
+    result = finalize_draft(
+        draft,
+        body,
+        no_channel_card=args.no_channel_card,
+        delete_draft=not args.keep_draft,
+    )
+    log.info("Nota: %s", _rel(result["note_path"]))
+    if result["transcript_path"]:
+        log.info("Transcript: %s", _rel(result["transcript_path"]))
+    if result["channel_card_path"]:
+        log.info("Channel card: %s", _rel(result["channel_card_path"]))
+    if result["moc_path"]:
+        log.info("MOC: %s", _rel(result["moc_path"]))
+    if result["draft_deleted"]:
+        log.info("Draft deletado.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Modo list
+# ---------------------------------------------------------------------------
+
+def _cmd_list(_args: argparse.Namespace) -> int:
+    drafts = list_pending_drafts()
+    if not drafts:
+        log.info("Sem drafts pendentes.")
+        return 0
+    log.info("%d draft(s) pendente(s):", len(drafts))
+    for d in drafts:
+        sys.stdout.write(f"{d}\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Argparse
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="yt-nota",
+        description="Extrai transcripts do YouTube. Síntese acontece via skill /yt-sintese no Claude Code.",
+    )
+    parser.add_argument("urls", nargs="*", help="URLs do YouTube (modo extração)")
+    parser.add_argument("--playlist", help="URL de playlist (expande pra vídeos)")
+    parser.add_argument("--file", help="Arquivo .txt com uma URL por linha")
+    parser.add_argument("--stdin", action="store_true", help="Lê URLs do stdin")
+    parser.add_argument("--tema", help="Tema (MOC) — usado pelo finalize depois")
+    parser.add_argument(
+        "--with-cookies",
+        action="store_true",
+        help="Usa cookies do Chrome (Chrome precisa estar FECHADO)",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Preview sem escrever draft")
+
+    parser.add_argument("--finalize", metavar="DRAFT", help="Finalize um draft (precisa --body-file ou stdin)")
+    parser.add_argument("--body-file", help="Arquivo com body sintetizado (modo finalize)")
+    parser.add_argument("--no-channel-card", action="store_true", help="Pula channel card (modo finalize)")
+    parser.add_argument("--keep-draft", action="store_true", help="Não deleta o draft (modo finalize)")
+
+    parser.add_argument("--list", action="store_true", help="Lista drafts pendentes")
+
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--version", action="version", version=f"yt-nota {__version__}")
+    args = parser.parse_args()
+
+    _setup_logging(args.verbose)
+
+    if args.list:
+        sys.exit(_cmd_list(args))
+    if args.finalize:
+        sys.exit(_cmd_finalize(args))
+    sys.exit(_cmd_extract(args))
 
 
 if __name__ == "__main__":
