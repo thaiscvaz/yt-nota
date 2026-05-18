@@ -166,14 +166,17 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         if _process_single(url, args, i, len(urls)):
             successes += 1
 
-    log.info("\n%d/%d drafts criados.", successes, len(urls))
-    if successes:
-        pending = list_pending_drafts()
-        log.info(
-            "Drafts pendentes em %s (%d total). Invoque `/yt-sintese` no Claude Code pra processar.",
-            _rel(DRAFTS_DIR),
-            len(pending),
-        )
+    if args.dry_run:
+        log.info("\n%d/%d preview(s) gerado(s) (dry-run, nada escrito).", successes, len(urls))
+    else:
+        log.info("\n%d/%d drafts criados.", successes, len(urls))
+        if successes:
+            pending = list_pending_drafts()
+            log.info(
+                "Drafts pendentes em %s (%d total). Invoque `/yt-sintese` no Claude Code pra processar.",
+                _rel(DRAFTS_DIR),
+                len(pending),
+            )
     return 0 if successes == len(urls) else 1
 
 

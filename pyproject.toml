@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yt-nota"
-version = "0.2.0"
+version = "0.2.1"
 description = "CLI que extrai transcripts do YouTube e prepara drafts pra síntese no Claude Code"
 readme = "README.md"
 requires-python = ">=3.10"
