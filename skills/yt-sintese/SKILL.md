@@ -80,58 +80,102 @@ Resuma o que foi feito: quantas notas geradas, paths relativos ao vault, qualque
 
 Você produz EXATAMENTE estas 7 seções, em ordem, com separadores `---`. **Nada antes da primeira seção. Nada depois da última.**
 
+Cada seção segue um padrão de **profundidade + legibilidade**: parágrafos curtos (máx 3-5 linhas), uso liberal de sub-headers `###`, bullets pra valores e exemplos, tabelas pra comparação numérica. O leitor escaneia rápido E aprofunda quando precisa.
+
 ```markdown
 ## Em uma frase
 
-{Tese central do vídeo em UMA frase. Não parágrafo.}
+{Tese central em UMA frase clara. Não parágrafo. Pode ter vírgulas, mas é UMA proposição.}
 
 ---
 
 ## O que defende
 
-**1. {Ponto principal}**
-{2-4 linhas. Concreto. Dados ou exemplos quando houver.}
+**1. {Título do ponto: substantivo + verbo curto}**
+
+{Abertura: 2-3 linhas que estabelecem o argumento.}
+
+{Quando o ponto for multifacetado, quebra com sub-headers ou bullets:}
+
+- **Aspecto A:** explicação curta com valor/exemplo concreto do vídeo
+- **Aspecto B:** outro aspecto com dado
+- **Aspecto C:** etc
+
+{Fechamento opcional: 1-2 linhas conectando os aspectos.}
 
 **2. {Segundo ponto}**
-{2-4 linhas}
+
+{Mesma estrutura. Use tabela quando há comparação numérica:}
+
+| Item | Valor A | Valor B |
+|---|---|---|
+| ... | ... | ... |
+
+{Comentário pós-tabela.}
 
 **3. {Terceiro ponto}**
-{2-4 linhas}
 
-(3 a 5 pontos. Cada um substancial.)
+{Pra pontos longos com vários sub-temas, use `###` em vez de bold:}
+
+### Sub-tema 1
+{2-3 linhas}
+
+### Sub-tema 2
+{2-3 linhas}
+
+(3 a 5 pontos. Cada um substancial: 8-20 linhas no total. Concreto, com exemplos literais do vídeo. Sem fluff.)
 
 ---
 
 ## O que mais me marcou
 
-> *"{citação literal mais impactante do transcript}"* `[mm:ss]`
+> *"{Citação literal mais impactante do transcript}"* `[mm:ss]`
 
-{1-2 frases sobre por que esse trecho marca.}
+{2-3 linhas: por que marca + conexão com a tese central do vídeo.}
+
+{Se houver uma segunda citação importante em momento diferente:}
+
+> *"{Segunda citação opcional}"* `[mm:ss]`
+
+{1-2 linhas comentando.}
 
 ---
 
 ## O que isso muda pra mim
 
-{Aplicação concreta à Thais. 2-4 linhas. Cite projetos dela quando fizer sentido: canal YT, blog VazDEng, cripto_invest, squad de engenharia de dados, dissertação PPGMNE.}
+{Abre com a aplicação principal em 2-3 linhas.}
+
+{Quebra em sub-aplicações quando faz sentido:}
+
+- **Pra {projeto X}:** aplicação específica em 1-2 linhas
+- **Pra {projeto Y}:** outra aplicação
+- **Pra {projeto Z}:** etc
+
+{Projetos da Thais que você pode invocar quando couber: canal YouTube de data engineering, blog VazDEng, cripto_invest, squad de engenharia de dados, dissertação PPGMNE, vault Obsidian.}
+
+{Fecha com 1 linha de decisão ou próximo passo.}
 
 ---
 
 ## Dicionário
 
-- **{termo 1}:** {explicação 1-2 linhas. Use analogia ou exemplo. Sem jargão recursivo.}
-- **{termo 2}:** {...}
-- **{termo 3}:** {...}
+Cada entrada tem: **termo**, definição, valor/dado se aplicável, analogia ou aplicação:
 
-(4 a 7 termos técnicos relevantes, em ordem de aparição no vídeo. Privilegia conceitos sobre nomes próprios.)
+- **{Termo 1}:** {definição funcional, 1-2 linhas}. **Valor de referência:** {número/range se mencionado no vídeo}. {Analogia ou contexto de uso.}
+- **{Termo 2}:** {...}
+- **{Termo 3}:** {...}
+
+(5 a 8 termos técnicos relevantes, em ordem de aparição. Privilegia conceitos sobre nomes próprios. Sempre que houver número no vídeo associado ao termo, preserva ele aqui.)
 
 ---
 
 ## Notas permanentes a criar
 
-- [[{Título atômico 1}]] — {ideia que merece extração futura}
+- [[{Título atômico 1}]] — {ideia que merece extração futura em 1 linha}
 - [[{Título atômico 2}]] — {...}
+- [[{Título atômico 3}]] — {...}
 
-(1 a 3 notas. Cada uma é um conceito atômico em frase declarativa.)
+(2 a 4 notas. Cada uma é um conceito atômico em frase declarativa. Devem ser titulos que sustentariam uma nota própria depois.)
 
 ---
 
@@ -142,19 +186,61 @@ Você produz EXATAMENTE estas 7 seções, em ordem, com separadores `---`. **Nad
 
 ## Notas pra escrever bem
 
-- "Em uma frase" é UMA frase. Não parágrafo.
-- "O que defende" usa **negrito** pra abrir cada ponto, parágrafo curto pra desenvolver.
-- "O que mais me marcou" sempre tem citação literal + timestamp `[mm:ss]`. O timestamp vem do transcript do draft. Se transcript indisponível, omite o timestamp.
-- "O que isso muda" é a parte mais autoral. Pode discordar, complementar, conectar com outros projetos dela.
-- "Dicionário" prioriza analogia sobre definição formal.
-- "Notas permanentes" são títulos que vão virar arquivos separados depois. Sejam atômicas: 1 ideia = 1 nota.
-- "Referência" formato: NOME-DO-CANAL. **Título**. YouTube, DD/MM/YYYY. URL. (DD/MM/YYYY a partir da data_publicacao do draft.)
+### Regras de densidade (importantes)
+
+- **Parágrafo curto.** Máx 3-5 linhas. Se passar disso, quebra em bullets ou sub-headers.
+- **Use tabelas pra comparação numérica.** PLA vs PETG, antes/depois, opção A vs B. Tabela é mais legível que 2 parágrafos.
+- **Use bullets pra listar valores, exemplos, marcas, contrapontos.** Não enfileira em parágrafo corrido.
+- **Use `###` (heading 3) dentro de pontos complexos.** Sub-temas com `###` quebram visualmente.
+- **Sempre que houver número no vídeo, preserve ele literal.** Temperatura, preço, percentual, velocidade, modelo de equipamento. Esses números servem como receita prática.
+- **Cite o vídeo explicitamente quando der exemplo concreto.** "Ele mostra no vídeo um caso onde..." é melhor que parafrasear abstratamente.
+
+### Por seção
+
+- **Em uma frase:** UMA frase. Pode ter vírgulas, mas uma proposição. Não parágrafo.
+- **O que defende:** 3-5 pontos. Cada ponto é substancial (8-20 linhas no total contando sub-bullets/tabelas). Cada ponto começa com `**N. Título**`, sub-temas usam `###` ou bullets. Concreto, com números e exemplos do vídeo.
+- **O que mais me marcou:** citação literal + timestamp `[mm:ss]` (o timestamp vem do transcript). 2-3 linhas de comentário. Se tiver segunda citação memorável em momento bem diferente, pode incluir.
+- **O que isso muda:** parte autoral. Abre com aplicação principal, depois bullets pra cada projeto da Thais que se conecta. Fecha com decisão/próximo passo.
+- **Dicionário:** 5-8 termos. Cada entrada: definição + valor de referência + analogia/aplicação. Preserva números literais sempre.
+- **Notas permanentes:** 2-4 títulos. Frases declarativas que sustentariam uma nota própria.
+- **Referência:** `NOME-DO-CANAL. **Título**. YouTube, DD/MM/YYYY. URL.` (DD/MM/YYYY a partir de data_publicacao do draft.)
 
 ## Casos especiais
 
 - **Transcript indisponível:** Use só descrição + título + tags. Em "Em uma frase", marque com "(síntese a partir da descrição, sem transcript)". Em "O que mais me marcou", se não houver citação concreta da descrição, escreva: "Sem transcript disponível para citação direta."
 - **Transcript em idioma estrangeiro:** Cite trechos traduzidos pra PT-BR na seção "O que mais me marcou", preservando o sentido.
 - **Vídeo curto/raso:** 3 pontos em "O que defende" é o mínimo. Se realmente não houver substância, faça os 3 pontos curtos e sinceros sobre o pouco que tem.
+
+## Preservação de configurações técnicas (REGRA NOVA — IMPORTANTE)
+
+Se o vídeo ensinar **valores numéricos de configuração** (temperatura em °C, velocidade em mm/s, flow em %, pressure advance, layer height em mm, retraction em mm, infill %, wall count, top/bottom layers, etc), você TEM que preservar os números EXATOS na síntese. Esses dados servem como receita prática que a Thais vai consultar no futuro quando aplicar.
+
+**Onde colocar:**
+
+1. **Dentro de "O que defende":** se a configuração é o ponto principal de um dos itens, inclui o valor literal no parágrafo. Exemplo:
+   > **2. Temperatura ideal varia por filamento**
+   > Pra PLA, 200-210°C no hotend e 60°C na mesa. Pra PETG, 230-240°C no hotend e 80°C na mesa. ABS pede 240-250°C com mesa em 100°C, idealmente em câmara fechada.
+
+2. **No Dicionário** (formato preferido pra recipes/cheat-sheet), use bullets com valor embutido:
+   > - **Pressure Advance (PA):** ajuste que compensa o atraso de pressão do filamento. Bambu A1: começa em 0.020, sobe pra 0.040 se ver under-extrusion nos cantos.
+   > - **Flow:** taxa de extrusão. Default 100%, mas calibrado pode ficar 95-105% dependendo do filamento. Calibra com cubo de 20mm de parede única.
+
+**O que NÃO fazer:**
+
+- ❌ "ajuste a temperatura adequadamente"
+- ❌ "use a velocidade certa"
+- ❌ "configure o pressure advance"
+- ❌ Arredondar números ("usa em torno de 200°C" quando o vídeo disse "210°C")
+
+**O que fazer:**
+
+- ✅ "210°C pra PLA, 240°C pra PETG"
+- ✅ "velocidade externa 30 mm/s, interna 80 mm/s"
+- ✅ "pressure advance 0.020 (Bambu A1)"
+- ✅ Se o vídeo der faixa, mantém a faixa: "200-215°C"
+- ✅ Se o vídeo mencionar marca/contexto da config, preserva: "Bambu A1 stock"
+
+A regra vale pra TUDO que seja replicável pela Thais no futuro: filamentos (marca + condições), modelos de impressora testados, slicers (com versão), sites/links de modelos. Quando em dúvida, **preserve o valor literal**.
 
 ## Anti-escopo
 

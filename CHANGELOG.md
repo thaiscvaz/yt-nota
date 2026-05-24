@@ -2,6 +2,28 @@
 
 Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [0.2.3] - 2026-05-24
+
+### Alterado
+- **Transcripts brutos agora ficam em subpasta `transcripts/`** dentro de cada canal, separados das notas síntese. Estrutura nova: `<vault>/30-Recursos/Literatura/<Canal>/3-<id>-<slug>.md` + `<Canal>/transcripts/3-<id>-<slug>.transcript.md`. Wikilinks continuam funcionando (Obsidian resolve por nome).
+- **Skill `/yt-sintese` reescrita pra notas mais densas:** parágrafos curtos (3-5 linhas), uso obrigatório de tabelas pra comparação numérica, sub-headers `###` dentro de "O que defende" pra pontos multifacetados, bullets pra valores/exemplos. Dicionário expandido (5-8 termos com valor de referência + analogia). Notas permanentes sobem pra 2-4. Cada ponto de "O que defende" agora cobre 8-20 linhas (vs 2-4 antes).
+
+### Adicionado
+- Teste de regressão `test_finalize_puts_transcript_in_subfolder` em `test_vault.py`.
+- Idempotência (`is_video_already_processed`) agora também varre `<Canal>/transcripts/` pra detectar processamento prévio.
+
+### Migração feita no vault
+- Transcripts existentes em `Bau-de-Experiencias-3D/`, `STLFLIX-BR-Impressao-3D/` e `Matheus-Battisti-Hora-de-Codar/` movidos pros subfolders `transcripts/`.
+
+## [0.2.2] - 2026-05-24
+
+### Adicionado
+- **Idempotência por `video_id`**: nova função `vault.is_video_already_processed` e check em `cli._process_single`. Se uma nota final ou draft pendente já tem o `video_id`, o pipeline pula com log informativo. Permite rodar a mesma queue várias vezes sem duplicar.
+- Flag `--force` no CLI pra sobrescrever a dedup quando realmente quiser reprocessar.
+- Testes de regressão pra dedup (5 novos em `test_vault.py`, total 47).
+- **Skill `/yt-sintese` agora preserva configs técnicas literalmente**: nova seção "Preservação de configurações técnicas" obriga capturar valores numéricos exatos (temperatura em °C, velocidade em mm/s, flow %, pressure advance, layer height em mm). Vale pra notas onde a Thais vai usar como receita prática (impressão 3D, etc).
+- **Queues curadas pro canal "Bau de Experiencias 3D"**: `queues/bau-wave1.txt` (5 vídeos pra validar estilo), `bau-wave2.txt` (13 do currículo numerado), `bau-wave3.txt` (6 de monetização).
+
 ## [0.2.1] - 2026-05-18
 
 ### Adicionado

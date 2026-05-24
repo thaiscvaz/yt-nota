@@ -30,7 +30,13 @@ from .extractor import (
     normalize_video_info,
     playlist_video_urls,
 )
-from .vault import finalize_draft, list_pending_drafts, write_draft
+from .slug import channel_slug
+from .vault import (
+    finalize_draft,
+    is_video_already_processed,
+    list_pending_drafts,
+    write_draft,
+)
 
 log = logging.getLogger("yt-nota")
 
@@ -120,6 +126,13 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         video["duration_human"],
         video.get("upload_date_iso") or "sem data",
     )
+
+    if not args.force:
+        canal_slug_str = channel_slug(video["channel"] or "Canal-Desconhecido")
+        already, evidence = is_video_already_processed(video["video_id"], canal_slug_str)
+        if already:
+            log.info("  Já processado, pulando: %s", _rel(evidence) if evidence else "")
+            return True
 
     transcript = extract_transcript(video)
     if transcript:
@@ -252,6 +265,11 @@ def main() -> None:
         help="Usa cookies do Chrome (Chrome precisa estar FECHADO)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Preview sem escrever draft")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reprocessa mesmo se video_id já tem nota/draft no vault (sobrescreve dedup)",
+    )
 
     parser.add_argument("--finalize", metavar="DRAFT", help="Finalize um draft (precisa --body-file ou stdin)")
     parser.add_argument("--body-file", help="Arquivo com body sintetizado (modo finalize)")

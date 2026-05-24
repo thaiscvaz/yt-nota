@@ -201,7 +201,9 @@ def finalize_draft(
     transcript_link: Optional[str] = None
 
     if segments and transcript_lang:
-        transcript_path = canal_dir / f"{note_path.stem}.transcript.md"
+        transcripts_dir = canal_dir / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        transcript_path = transcripts_dir / f"{note_path.stem}.transcript.md"
         transcript_link = transcript_path.stem
 
     fm = _build_final_frontmatter(meta, canal_slug_str, transcript_link, ts_id)
@@ -412,3 +414,45 @@ def list_pending_drafts() -> list[Path]:
     if not DRAFTS_DIR.exists():
         return []
     return sorted(DRAFTS_DIR.glob("*.draft.md"))
+
+
+def is_video_already_processed(video_id: str, channel_slug: str) -> tuple[bool, Optional[Path]]:
+    """Verifica se um video_id já tem nota final OU draft pendente no vault.
+
+    Retorna (já_processado, path_da_evidencia_ou_None).
+    Path serve pra log informativo.
+    """
+    if not video_id:
+        return False, None
+
+    canal_dir = LITERATURA_DIR / channel_slug
+    if canal_dir.exists():
+        for note in canal_dir.glob("3-*.md"):
+            if note.name.endswith(".transcript.md"):
+                continue
+            try:
+                content = note.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if f"video_id: {video_id}" in content or f"v={video_id}" in content:
+                return True, note
+        transcripts_dir = canal_dir / "transcripts"
+        if transcripts_dir.exists():
+            for tr in transcripts_dir.glob("*.transcript.md"):
+                try:
+                    content = tr.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                if f"v={video_id}" in content or f"video_id: {video_id}" in content:
+                    return True, tr
+
+    if DRAFTS_DIR.exists():
+        for draft in DRAFTS_DIR.glob("*.draft.md"):
+            try:
+                content = draft.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if f"video_id: {video_id}" in content:
+                return True, draft
+
+    return False, None

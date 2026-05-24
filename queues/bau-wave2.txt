@@ -1,0 +1,42 @@
+# Bau de Experiencias 3D — Wave 2 (13 vídeos)
+# Currículo numerado, em ordem cronológica didática
+# Esses são os vídeos com mais configs técnicas — preservar números exatos
+
+# 84: Aula 1 – O que é impressão 3D FDM
+https://www.youtube.com/watch?v=nJtBZe6yCTM
+
+# 82: Aula 2 – Manutenção da Impressora 3D
+https://www.youtube.com/watch?v=bEkxP5EnhPc
+
+# 79: Aula 3 – Por Dentro do Orca Slicer
+https://www.youtube.com/watch?v=YdpVWPHkOXA
+
+# 76: Lesson 4 – flow, speed, layer height
+https://www.youtube.com/watch?v=FT13GDEsh7E
+
+# 71: Lesson 5 - Printing Temperature
+https://www.youtube.com/watch?v=NyJJbHNv6b4
+
+# 66: Lesson 6 - Perfect Flow
+https://www.youtube.com/watch?v=kh_K__uh7ck
+
+# 63: Lesson 7 - Pressure Advance
+https://www.youtube.com/watch?v=8E9UBjfCu2c
+
+# 58: Lesson 8 - Velocity and Acceleration
+https://www.youtube.com/watch?v=MlWCDGIX0Co
+
+# 52: Lesson 9 - Eliminating Strings
+https://www.youtube.com/watch?v=rjk-ki5IqC8
+
+# 44: Lesson 10 - Supports and Bridges
+https://www.youtube.com/watch?v=XT5wiryAJek
+
+# 36: Lesson 11 - Filling
+https://www.youtube.com/watch?v=9TFeUzGArZY
+
+# 22: Lesson 12 - Text Tool
+https://www.youtube.com/watch?v=6kYxhjbKiJE
+
+# 14: Lesson 13 - Boolean Mesh
+https://www.youtube.com/watch?v=FhhNEJ29wnA
