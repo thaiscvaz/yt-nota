@@ -224,6 +224,19 @@ def test_finalize_creates_note_transcript_and_card(fake_vault):
     assert not path.exists()
 
 
+def test_finalize_puts_transcript_in_subfolder(fake_vault):
+    """Transcripts ficam em <canal>/transcripts/, não soltos junto das notas."""
+    path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    result = vault.finalize_draft(path, "body")
+
+    assert result["transcript_path"] is not None
+    assert result["transcript_path"].parent.name == "transcripts"
+    # Nota principal NÃO está dentro de transcripts/
+    assert result["note_path"].parent.name != "transcripts"
+    # Nota e transcript no mesmo canal (transcripts é subpasta)
+    assert result["transcript_path"].parent.parent == result["note_path"].parent
+
+
 def test_finalize_note_has_complete_frontmatter(fake_vault):
     path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
     body = "## Em uma frase\n\nteste"
@@ -315,3 +328,44 @@ def test_list_pending_drafts_returns_drafts_sorted(fake_vault):
     drafts = vault.list_pending_drafts()
     assert len(drafts) == 2
     assert all(d.suffix == ".md" and d.name.endswith(".draft.md") for d in drafts)
+
+
+# ---------------------------------------------------------------------------
+# is_video_already_processed
+# ---------------------------------------------------------------------------
+
+def test_dedup_returns_false_when_vault_empty(fake_vault):
+    already, evidence = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is False
+    assert evidence is None
+
+
+def test_dedup_detects_existing_final_note(fake_vault):
+    path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    vault.finalize_draft(path, "body")
+
+    already, evidence = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is True
+    assert evidence is not None
+    assert evidence.suffix == ".md"
+    assert not evidence.name.endswith(".transcript.md")
+
+
+def test_dedup_detects_existing_draft(fake_vault):
+    vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+
+    already, evidence = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is True
+    assert evidence is not None
+    assert evidence.name.endswith(".draft.md")
+
+
+def test_dedup_different_video_id_returns_false(fake_vault):
+    vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    already, evidence = vault.is_video_already_processed("DIFFERENT-id", "Canal-Teste")
+    assert already is False
+
+
+def test_dedup_empty_video_id_returns_false(fake_vault):
+    already, evidence = vault.is_video_already_processed("", "Canal-Teste")
+    assert already is False
