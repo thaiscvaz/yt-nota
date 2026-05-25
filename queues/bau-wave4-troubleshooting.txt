@@ -1,0 +1,56 @@
+# Bau de Experiencias 3D — Wave 4 (15 vídeos de troubleshooting técnico)
+# Antecipa pra quando tiver impressora e dor concreta
+
+# Primeira camada / nivelamento
+# 68: First Layer Bad Never Again Simple and Quick Setup
+https://www.youtube.com/watch?v=d7XyvGkM1C0
+
+# 98: Como nivelar manualmente impressora Bambu A1/Mini
+https://www.youtube.com/watch?v=ARHKgqlXauI
+
+# Strings e costura
+# 86: Get rid of cobwebs (strings)
+https://www.youtube.com/watch?v=r8sgs_VrwEI
+
+# 96: Como Eliminar a Costura na Impressão 3D
+https://www.youtube.com/watch?v=lJ2CpUv7h5c
+
+# Suportes
+# 93: SUPORTES INSUPORTÁVEIS - APRENDA DE UMA VEZ POR TODAS
+https://www.youtube.com/watch?v=HR1nL39xymI
+
+# 92: Unbearable Supports – Part 2: Print Without Support
+https://www.youtube.com/watch?v=IJBKf0lfFnY
+
+# Fluxo e nozzle
+# 94: ERRO FATAL na Impressão 3D: Como Resolver Fluxo
+https://www.youtube.com/watch?v=9gaCG93_9Ew
+
+# 57: 3D Nozzle Dropping Everything? Stop Wasting Filament
+https://www.youtube.com/watch?v=PxVH4QK7N2k
+
+# Configurações chave
+# 32: These 3 settings change everything in your 3D!
+https://www.youtube.com/watch?v=x9Cu-z_gRog
+
+# 91: Top Layers and Layer Height: The Secret to Perfect 3D Prints
+https://www.youtube.com/watch?v=cHzrjVsspy8
+
+# Erros gerais
+# 40: Solving the Biggest 3D Printing Mistakes [EASY]
+https://www.youtube.com/watch?v=p1WXpp3Uwzw
+
+# Acabamento
+# 49: Ultimate Guide: 3D Line-Free Tabletop (Ironing Mode)
+https://www.youtube.com/watch?v=2cUfowVasJA
+
+# 51: How to Apply Instant Texture to Your 3D Print
+https://www.youtube.com/watch?v=f4d6D8KIgeY
+
+# Multi-cor sem AMS
+# 60: How to Print in Color Without AMS/SFC – EASY, Any Printer
+https://www.youtube.com/watch?v=1ZFRH-mXZpE
+
+# Encaixes
+# 46: Perfect Fit in 3D Printing: Complete Tutorial
+https://www.youtube.com/watch?v=DSrcpQcfZXo
