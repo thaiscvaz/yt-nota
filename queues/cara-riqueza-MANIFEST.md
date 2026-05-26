@@ -1,0 +1,31 @@
+# Manifest das waves cara-riqueza Etapa 1
+
+- Wave 01: fii-tickers-1 (8 videos) -> cara-riqueza-wave01-fii-tickers-1.txt
+- Wave 02: fii-tickers-2 (3 videos) -> cara-riqueza-wave02-fii-tickers-2.txt
+- Wave 03: fii-metodo-1 (8 videos) -> cara-riqueza-wave03-fii-metodo-1.txt
+- Wave 04: fii-metodo-2 (5 videos) -> cara-riqueza-wave04-fii-metodo-2.txt
+- Wave 05: acoes-br (4 videos) -> cara-riqueza-wave05-acoes-br.txt
+- Wave 06: stocks-us (5 videos) -> cara-riqueza-wave06-stocks-us.txt
+- Wave 07: renda-fixa-1 (8 videos) -> cara-riqueza-wave07-renda-fixa-1.txt
+- Wave 08: renda-fixa-2 (8 videos) -> cara-riqueza-wave08-renda-fixa-2.txt
+- Wave 09: renda-fixa-3 (8 videos) -> cara-riqueza-wave09-renda-fixa-3.txt
+- Wave 10: renda-fixa-4 (4 videos) -> cara-riqueza-wave10-renda-fixa-4.txt
+- Wave 11: cripto-1 (8 videos) -> cara-riqueza-wave11-cripto-1.txt
+- Wave 12: cripto-2 (5 videos) -> cara-riqueza-wave12-cripto-2.txt
+- Wave 13: macro-1 (8 videos) -> cara-riqueza-wave13-macro-1.txt
+- Wave 14: macro-2 (8 videos) -> cara-riqueza-wave14-macro-2.txt
+- Wave 15: macro-3 (3 videos) -> cara-riqueza-wave15-macro-3.txt
+- Wave 16: carteira-1 (8 videos) -> cara-riqueza-wave16-carteira-1.txt
+- Wave 17: carteira-2 (8 videos) -> cara-riqueza-wave17-carteira-2.txt
+- Wave 18: carteira-3 (8 videos) -> cara-riqueza-wave18-carteira-3.txt
+- Wave 19: carteira-4 (3 videos) -> cara-riqueza-wave19-carteira-4.txt
+- Wave 20: renda-passiva-1 (8 videos) -> cara-riqueza-wave20-renda-passiva-1.txt
+- Wave 21: renda-passiva-2 (8 videos) -> cara-riqueza-wave21-renda-passiva-2.txt
+- Wave 22: renda-passiva-3 (8 videos) -> cara-riqueza-wave22-renda-passiva-3.txt
+- Wave 23: renda-passiva-4 (8 videos) -> cara-riqueza-wave23-renda-passiva-4.txt
+- Wave 24: renda-passiva-5 (8 videos) -> cara-riqueza-wave24-renda-passiva-5.txt
+- Wave 25: renda-passiva-6 (2 videos) -> cara-riqueza-wave25-renda-passiva-6.txt
+- Wave 26: patrimonio-1 (8 videos) -> cara-riqueza-wave26-patrimonio-1.txt
+- Wave 27: patrimonio-2 (8 videos) -> cara-riqueza-wave27-patrimonio-2.txt
+- Wave 28: patrimonio-3 (1 videos) -> cara-riqueza-wave28-patrimonio-3.txt
+- Wave 29: comportamento (8 videos) -> cara-riqueza-wave29-comportamento.txt

@@ -2,6 +2,17 @@
 
 Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [0.2.4] - 2026-05-26
+
+### Adicionado
+- **`--sleep N`**: segundos de espera entre vídeos no batch (default 0). Espalha as chamadas no tempo. Sugestão: 15-30s pra batch >5.
+- **Detecção de rate limit 429 + parada precoce**: ao 2º HTTP 429 consecutivo do endpoint `timedtext`, a wave para imediatamente. URLs restantes são salvas em `<queue>.pending.txt`. Exit code 2 sinaliza parada por rate limit.
+- **`--retry-pending FILE`**: retoma uma wave parcial a partir de `.pending.txt`. Se completar tudo, o pending é apagado; se parar de novo por 429, atualiza com as URLs restantes.
+- Nova exceção `RateLimitError(ExtractError)` em `extractor.py`, propagada em `_fetch_vtt` quando status_code é 429.
+
+### Why
+Operação real no canal "A Cara da Riqueza" (554 vídeos) bateu 429 logo no início. Sem parada precoce, gastei requisições inúteis em 540 URLs (todas com 429). Com sleep + parada precoce + retry-pending, dá pra rodar waves de 8 com pausa segura e retomar limpo após reset do rate limit (1-24h).
+
 ## [0.2.3] - 2026-05-24
 
 ### Alterado

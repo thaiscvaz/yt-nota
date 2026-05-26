@@ -21,6 +21,14 @@ class ExtractError(Exception):
     pass
 
 
+class RateLimitError(ExtractError):
+    """YouTube respondeu 429 (Too Many Requests).
+
+    Sinaliza pro CLI que continuar processando vai dar 429 também — rate limit
+    é por janela, não por URL. Parada precoce evita desperdiçar URLs do queue.
+    """
+
+
 PREFERRED_LANGS = [
     "pt-BR",
     "pt",
@@ -164,10 +172,15 @@ def _fetch_vtt(sub_entries: list) -> str:
         vtt = sub_entries[0]
     try:
         r = httpx.get(vtt["url"], timeout=30, follow_redirects=True)
-        r.raise_for_status()
-        return r.text
     except httpx.HTTPError as e:
         raise ExtractError(f"Falha baixando subtitle: {e}") from e
+    if r.status_code == 429:
+        raise RateLimitError("YouTube respondeu 429 (rate limit). Tente novamente em algumas horas.")
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise ExtractError(f"Falha baixando subtitle: {e}") from e
+    return r.text
 
 
 def extract_transcript(video: dict) -> Optional[dict]:
@@ -179,6 +192,8 @@ def extract_transcript(video: dict) -> Optional[dict]:
     lang, is_auto, entries = pick
     try:
         vtt_text = _fetch_vtt(entries)
+    except RateLimitError:
+        raise
     except ExtractError as e:
         log.warning("Falha buscando transcript em %s: %s", lang, e)
         return None

@@ -18,12 +18,14 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 
 from . import __version__
 from .config import DRAFTS_DIR, VAULT_PATH
 from .extractor import (
     ExtractError,
+    RateLimitError,
     extract_info,
     extract_transcript,
     is_playlist,
@@ -69,8 +71,9 @@ def _collect_urls(args: argparse.Namespace) -> list[str]:
     urls: list[str] = list(args.urls or [])
     if args.playlist:
         urls.append(args.playlist)
-    if args.file:
-        path = Path(args.file)
+    file_path = args.retry_pending or args.file
+    if file_path:
+        path = Path(file_path)
         if not path.exists():
             raise SystemExit(f"Arquivo não encontrado: {path}")
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -108,6 +111,7 @@ def _expand_playlists(urls: list[str], with_cookies: bool) -> list[str]:
 
 
 def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) -> bool:
+    """Processa 1 vídeo. Propaga RateLimitError (caller decide parar a wave)."""
     log.info("[%d/%d] %s", idx, total, url)
     try:
         info = extract_info(url, with_cookies=args.with_cookies)
@@ -134,7 +138,10 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
             log.info("  Já processado, pulando: %s", _rel(evidence) if evidence else "")
             return True
 
-    transcript = extract_transcript(video)
+    try:
+        transcript = extract_transcript(video)
+    except RateLimitError:
+        raise
     if transcript:
         log.info(
             "  Transcript: %s (%s, %d segmentos)",
@@ -166,6 +173,25 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
     return True
 
 
+def _pending_path_for(source: str | None) -> Path:
+    """Path do .pending.txt baseado em --file ou --retry-pending."""
+    if source:
+        src = Path(source)
+        if src.name.endswith(".pending.txt"):
+            return src
+        return src.with_suffix(src.suffix + ".pending.txt") if src.suffix else src.with_name(src.name + ".pending.txt")
+    return Path("yt-nota.pending.txt")
+
+
+def _save_pending(path: Path, remaining: list[str], reason: str) -> None:
+    header = (
+        f"# Wave interrompida: {reason}\n"
+        f"# {len(remaining)} URLs restantes. Retomar com: yt-nota --retry-pending {path.name}\n"
+        f"\n"
+    )
+    path.write_text(header + "\n".join(remaining) + "\n", encoding="utf-8")
+
+
 def _cmd_extract(args: argparse.Namespace) -> int:
     urls = _collect_urls(args)
     if not urls:
@@ -173,11 +199,47 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         return 1
     urls = _expand_playlists(urls, args.with_cookies)
     log.info("Processando %d vídeo(s)...", len(urls))
+    if args.sleep > 0:
+        log.info("Sleep entre vídeos: %ds", args.sleep)
 
     successes = 0
+    rate_limit_streak = 0
+    stopped_early = False
+    last_processed = 0
+    source = args.retry_pending or args.file
     for i, url in enumerate(urls, 1):
-        if _process_single(url, args, i, len(urls)):
-            successes += 1
+        if i > 1 and args.sleep > 0:
+            time.sleep(args.sleep)
+        try:
+            ok = _process_single(url, args, i, len(urls))
+            if ok:
+                successes += 1
+            rate_limit_streak = 0
+            last_processed = i
+        except RateLimitError as e:
+            log.error("  %s", e)
+            rate_limit_streak += 1
+            last_processed = i - 1  # esse não conta como processado
+            if rate_limit_streak >= 2:
+                log.error(
+                    "Parada precoce: 2 rate limits consecutivos. "
+                    "Próximas URLs vão dar 429 também."
+                )
+                stopped_early = True
+                break
+            log.warning("  (continuando, pode ser flutuação. Próximo erro 429 vai parar.)")
+
+    if stopped_early:
+        remaining = urls[last_processed:]
+        pending_path = _pending_path_for(source)
+        _save_pending(pending_path, remaining, "rate limit 429")
+        log.error(
+            "\n%d URLs restantes salvas em %s. "
+            "Retome com: yt-nota --retry-pending %s",
+            len(remaining),
+            pending_path,
+            pending_path.name,
+        )
 
     if args.dry_run:
         log.info("\n%d/%d preview(s) gerado(s) (dry-run, nada escrito).", successes, len(urls))
@@ -190,6 +252,16 @@ def _cmd_extract(args: argparse.Namespace) -> int:
                 _rel(DRAFTS_DIR),
                 len(pending),
             )
+
+    # Se rodou tudo sem parada precoce E veio de --retry-pending, deleta o pending
+    if not stopped_early and args.retry_pending:
+        pending_path = Path(args.retry_pending)
+        if pending_path.exists():
+            pending_path.unlink()
+            log.info("Pending file consumido: %s", pending_path.name)
+
+    if stopped_early:
+        return 2  # exit code dedicado pra rate limit
     return 0 if successes == len(urls) else 1
 
 
@@ -257,8 +329,19 @@ def main() -> None:
     parser.add_argument("urls", nargs="*", help="URLs do YouTube (modo extração)")
     parser.add_argument("--playlist", help="URL de playlist (expande pra vídeos)")
     parser.add_argument("--file", help="Arquivo .txt com uma URL por linha")
+    parser.add_argument(
+        "--retry-pending",
+        help="Retoma a partir de <wave>.pending.txt salvo após parada precoce por 429",
+    )
     parser.add_argument("--stdin", action="store_true", help="Lê URLs do stdin")
     parser.add_argument("--tema", help="Tema (MOC) — usado pelo finalize depois")
+    parser.add_argument(
+        "--sleep",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Segundos de espera entre vídeos (default 0; sugerido 15-30 pra batch >5)",
+    )
     parser.add_argument(
         "--with-cookies",
         action="store_true",
