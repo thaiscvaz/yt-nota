@@ -20,3 +20,7 @@ STATE.md
 _batches/
 queues/
 scripts/chain-*.sh
+
+# Mapping de canal pra domínio é configuração pessoal do usuário.
+# Versionar só o .example.yaml (sem dados sensíveis).
+config/channel_domains.yaml

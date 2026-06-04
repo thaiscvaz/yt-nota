@@ -1,0 +1,28 @@
+# Mapping canal_slug → domínio do vault Obsidian.
+#
+# Copie este arquivo pra `channel_domains.yaml` (não versionado) e edite
+# com os canais reais que você consome.
+#
+# Resolução em cascata (ver src/yt_nota/domain.py):
+#   1. Flag --dominio (override explícito na CLI)
+#   2. Frontmatter `dominio:` do draft (se já preenchido)
+#   3. Lookup neste arquivo pelo canal_slug
+#   4. Se nada bater, CLI aborta pedindo --dominio ou inclusão aqui.
+#
+# Domínios válidos: IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, Metodo, Mestrado
+
+# Exemplos por domínio:
+
+# IA-Engenharia
+Fabio-Akita: IA-Engenharia
+AkitaOnRails: IA-Engenharia
+Boris-Cherny: IA-Engenharia
+Anthropic: IA-Engenharia
+Matheus-Battisti-Hora-de-Codar: IA-Engenharia
+
+# Metodo (PARA, BASB, Zettelkasten)
+Tiago-Forte: Metodo
+
+# Adicione seus canais conforme processa o primeiro vídeo de cada um.
+# Se rodar `yt-nota <url>` e o canal não estiver mapeado, a CLI imprime
+# o canal_slug exato pra você adicionar aqui.

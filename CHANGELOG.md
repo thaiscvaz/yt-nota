@@ -19,7 +19,7 @@ Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](http
 
 ### Compatibilidade
 - **Quebra silenciosa pra canais não mapeados.** Se canal não está em `config/channel_domains.yaml` E ninguém passou `--dominio`, o `finalize` aborta com `DomainResolutionError`. Solução: 1 linha no YAML, ou `--dominio X`.
-- Notas legadas em `Literatura/<canal>/` flat continuam funcionando pra dedup. Não migra automático; o mantenedor decide se move manualmente.
+- Notas legadas em `Literatura/<canal>/` flat continuam funcionando pra dedup. Não migra automático; o usuário move manualmente.
 - Channel cards legados em `Notas/<canal>.md` ficam órfãos. Primeira execução pós-upgrade cria card novo em `Notas/Cards-de-Pessoa/<canal>.md`.
 
 ### Why
