@@ -1,10 +1,12 @@
-"""Escrita no vault Obsidian.
+"""Escrita no vault Obsidian (estrutura Fase A+B, 2026-06-04).
 
 Dois modos:
 - `write_draft`: chamado pelo CLI principal. Escreve um draft com metadata + transcript
-  na pasta `_drafts/`. A síntese acontece depois via skill `/yt-sintese` no Claude Code.
+  + `dominio` na pasta `Pipeline/_processar/`. A síntese acontece depois via skill
+  `/yt-sintese` no Claude Code.
 - `finalize`: chamado pelo subcomando `yt-nota finalize`. Recebe o body sintetizado,
-  monta a nota final + transcript + channel card + (opcional) MOC tema.
+  monta a nota final em `Literatura/<dominio>/<canal>/` + transcript + channel card
+  em `Notas/Cards-de-Pessoa/<canal>.md` + (opcional) MOC tema.
 """
 
 from __future__ import annotations
@@ -16,7 +18,13 @@ from typing import Optional
 
 import yaml
 
-from .config import DRAFTS_DIR, LITERATURA_DIR, NOTAS_DIR, VAULT_PATH
+from .config import (
+    CARDS_DE_PESSOA_DIR,
+    LITERATURA_DIR,
+    PROCESSAR_DIR,
+    VALID_DOMINIOS,
+    VAULT_PATH,
+)
 from .slug import channel_slug, title_slug
 from .transcript import Segment, segments_to_markdown, segments_to_plain
 
@@ -60,18 +68,22 @@ def write_draft(
     transcript_info: Optional[dict],
     *,
     tema: Optional[str] = None,
+    dominio: Optional[str] = None,
 ) -> Path:
-    """Escreve draft em _drafts/ aguardando síntese.
+    """Escreve draft em Pipeline/_processar/ aguardando síntese.
+
+    `dominio` (opcional): se passado, é gravado no frontmatter pra usar no finalize.
+    Se None aqui, o finalize precisa resolver via cli (--dominio) ou lookup YAML.
 
     Retorna o path do draft criado.
     """
-    DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSAR_DIR.mkdir(parents=True, exist_ok=True)
 
     canal = video["channel"] or "Canal-Desconhecido"
     ts_id = _now_id()
     slug = title_slug(video["title"])
 
-    draft_path = _unique_path(DRAFTS_DIR / f"{ts_id}-{slug}.draft.md")
+    draft_path = _unique_path(PROCESSAR_DIR / f"{ts_id}-{slug}.draft.md")
 
     fm = [
         "---",
@@ -104,6 +116,8 @@ def write_draft(
             fm.append(f"  - {_yaml_quote(tag)}")
     if tema:
         fm.append(f"tema: {_yaml_quote(tema)}")
+    if dominio:
+        fm.append(f"dominio: {dominio}")
     fm.append(f"created: {_today_iso()}")
     fm.append("---")
 
@@ -114,7 +128,7 @@ def write_draft(
         "",
         "> [!warning] Síntese pendente",
         "> Esse arquivo aguarda processamento via skill `/yt-sintese` no Claude Code.",
-        "> Quando processado, vira nota final em `30-Recursos/Literatura/<Canal>/`,",
+        "> Quando processado, vira nota final em `30-Recursos/Literatura/<dominio>/<canal>/`,",
         "> com transcript em arquivo irmão e atualização do channel card. Este draft é deletado.",
         "",
     ]
@@ -181,12 +195,18 @@ def finalize_draft(
     *,
     no_channel_card: bool = False,
     delete_draft: bool = True,
+    dominio_override: Optional[str] = None,
 ) -> dict:
     """Lê o draft, junta com o body sintetizado, escreve nota final + transcript + card.
 
     `body_markdown` é o output da síntese (as 7 seções).
+    `dominio_override`: força um domínio específico (CLI flag `--dominio`). Se None,
+    tenta ler do frontmatter do draft; se nem isso, faz lookup no YAML; se falhar,
+    propaga DomainResolutionError.
     Retorna paths dos arquivos criados/atualizados.
     """
+    from .domain import resolve as resolve_dominio
+
     meta, segments, _ = _parse_draft(draft_path)
 
     canal = meta.get("canal") or "Canal-Desconhecido"
@@ -197,7 +217,9 @@ def finalize_draft(
     transcript_lang = meta.get("idioma_transcript")
     transcript_origem = meta.get("transcript_origem")
 
-    canal_dir = LITERATURA_DIR / canal_slug_str
+    dominio = resolve_dominio(canal_slug_str, override=dominio_override or meta.get("dominio"))
+
+    canal_dir = LITERATURA_DIR / dominio / canal_slug_str
     canal_dir.mkdir(parents=True, exist_ok=True)
 
     note_path = _unique_path(canal_dir / f"3-{ts_id}-{slug}.md")
@@ -330,8 +352,8 @@ def _update_channel_card(
     slug: str,
     note_stem: str,
 ) -> Path:
-    NOTAS_DIR.mkdir(parents=True, exist_ok=True)
-    card_path = NOTAS_DIR / f"{canal_slug_str}.md"
+    CARDS_DE_PESSOA_DIR.mkdir(parents=True, exist_ok=True)
+    card_path = CARDS_DE_PESSOA_DIR / f"{canal_slug_str}.md"
     pub = _as_str(meta.get("data_publicacao")) or "sem data"
     line = f"- [[{note_stem}]] — {_as_str(meta.get('titulo'))} ({pub})"
 
@@ -415,22 +437,40 @@ def _unique_path(path: Path) -> Path:
 
 
 def list_pending_drafts() -> list[Path]:
-    if not DRAFTS_DIR.exists():
+    if not PROCESSAR_DIR.exists():
         return []
-    return sorted(DRAFTS_DIR.glob("*.draft.md"))
+    return sorted(PROCESSAR_DIR.glob("*.draft.md"))
 
 
-def is_video_already_processed(video_id: str, channel_slug: str) -> tuple[bool, Optional[Path]]:
+def is_video_already_processed(
+    video_id: str,
+    channel_slug: str,
+    dominio: Optional[str] = None,
+) -> tuple[bool, Optional[Path]]:
     """Verifica se um video_id já tem nota final OU draft pendente no vault.
 
+    `dominio` (opcional): se passado, prioriza `<dominio>/<canal>/`; caso contrário
+    varre TODOS os subdomínios pra catch posicionamento legado.
     Retorna (já_processado, path_da_evidencia_ou_None).
-    Path serve pra log informativo.
     """
     if not video_id:
         return False, None
 
-    canal_dir = LITERATURA_DIR / channel_slug
-    if canal_dir.exists():
+    # Candidatos: novo (<dominio>/<canal>) + todos os <dominio>/<canal> existentes
+    # (cobre canais espalhados em mais de um domínio se houver overlap futuro).
+    canal_dirs: list[Path] = []
+    if dominio:
+        canal_dirs.append(LITERATURA_DIR / dominio / channel_slug)
+    if LITERATURA_DIR.exists():
+        for sub in LITERATURA_DIR.iterdir():
+            if sub.is_dir() and (sub / channel_slug).is_dir():
+                cand = sub / channel_slug
+                if cand not in canal_dirs:
+                    canal_dirs.append(cand)
+
+    for canal_dir in canal_dirs:
+        if not canal_dir.exists():
+            continue
         for note in canal_dir.glob("3-*.md"):
             if note.name.endswith(".transcript.md"):
                 continue
@@ -450,8 +490,8 @@ def is_video_already_processed(video_id: str, channel_slug: str) -> tuple[bool, 
                 if f"v={video_id}" in content or f"video_id: {video_id}" in content:
                     return True, tr
 
-    if DRAFTS_DIR.exists():
-        for draft in DRAFTS_DIR.glob("*.draft.md"):
+    if PROCESSAR_DIR.exists():
+        for draft in PROCESSAR_DIR.glob("*.draft.md"):
             try:
                 content = draft.read_text(encoding="utf-8", errors="ignore")
             except OSError:

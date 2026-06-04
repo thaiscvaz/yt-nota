@@ -2,6 +2,29 @@
 
 Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [0.4.0] - 2026-06-04
+
+### Mudado
+- **Drafts migram pra `Pipeline/_processar/`** (Fase A+B do refatoramento do vault Obsidian). Path antigo `30-Recursos/Literatura/_drafts/` movido pra `30-Recursos/Literatura/Pipeline/_processar/`. Constante `DRAFTS_DIR` renomeada pra `PROCESSAR_DIR` em `config.py`; propagado em `vault.py`, `cli.py` e fixtures de teste.
+- Notas finais agora seguem 7 domínios hierárquicos: `30-Recursos/Literatura/<dominio>/<canal>/` (ex: `IA-Engenharia/Akita/`, `Financas/REDACTED-CHANNEL/`). Mapping canal → domínio em `config/channel_domains.yaml`.
+- **Channel cards migram pra `30-Recursos/Notas/Cards-de-Pessoa/<canal>.md`** (era `Notas/<canal>.md` flat). Nova constante `CARDS_DE_PESSOA_DIR` em `config.py`.
+- Fixtures de teste (`test_vault.py`, `test_whisper_fallback.py`) atualizadas pra usar `PROCESSAR_DIR` e novo path.
+- README, `docs/plan.md`, `skills/yt-sintese/SKILL.md`, `CLAUDE.md` atualizados.
+
+### Adicionado
+- **`src/yt_nota/domain.py`**: módulo novo de resolução de domínio em cascata: flag `--dominio` (override CLI) → frontmatter `dominio:` do draft → lookup em `config/channel_domains.yaml` → `DomainResolutionError` com instrução clara se nada bater. `validate()` rejeita domínios fora dos 7 da REGRAS-VAULT.
+- **Constantes em `config.py`**: `VALID_DOMINIOS` (frozenset com os 7 válidos), `DOMAINS_CONFIG_PATH`, `CARDS_DE_PESSOA_DIR`.
+- **Kwarg `dominio` em `write_draft`** e **`dominio_override` em `finalize_draft`**: permitem skill `/yt-sintese` ou CLI passar override explícito. Frontmatter do draft ganha campo `dominio:` opcional.
+- **`is_video_already_processed` agora varre TODOS os subdomínios** de `Literatura/` pra dedup (cobre notas legadas em path flat anteriores à migração).
+
+### Compatibilidade
+- **Quebra silenciosa pra canais não mapeados.** Se canal não está em `config/channel_domains.yaml` E ninguém passou `--dominio`, o `finalize` aborta com `DomainResolutionError`. Solução: 1 linha no YAML, ou `--dominio X`.
+- Notas legadas em `Literatura/<canal>/` flat continuam funcionando pra dedup. Não migra automático; o mantenedor decide se move manualmente.
+- Channel cards legados em `Notas/<canal>.md` ficam órfãos. Primeira execução pós-upgrade cria card novo em `Notas/Cards-de-Pessoa/<canal>.md`.
+
+### Why
+Refatoramento do vault Obsidian (2026-06-04) hierarquizou `30-Recursos/Literatura/` em 7 domínios (Mestrado, Saude, Financas, IA-Engenharia, Carreira, Impressao-3D, Metodo) + sub-pasta `Pipeline/` pros drafts em transito. Documentação canônica em `30-Recursos/Sistema/REGRAS-VAULT.md` e `MIGRACAO-PROJETOS.md`. Pasta `_drafts/` flat foi substituída por `Pipeline/_processar/` (rename de constante alinhado com nome da pasta). Cards-de-Pessoa subdomínio criado na Fase B pra reduzir entropia de `Notas/`.
+
 ## [0.3.0] - 2026-05-31
 
 ### Adicionado

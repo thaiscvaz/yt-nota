@@ -1,6 +1,6 @@
 ---
 name: yt-sintese
-description: Processa drafts do yt-nota (em <vault>/30-Recursos/Literatura/_drafts/) e gera notas Obsidian completas com 7 seções (em uma frase, o que defende, etc), atualiza channel card. Use após rodar `yt-nota <url>` no terminal pra criar drafts.
+description: Processa drafts do yt-nota (em <vault>/30-Recursos/Literatura/Pipeline/_processar/) e gera notas Obsidian completas com 7 seções (em uma frase, o que defende, etc), atualiza channel card. Use após rodar `yt-nota <url>` no terminal pra criar drafts.
 allowed-tools: Read, Write, Bash, Glob
 ---
 
@@ -15,10 +15,10 @@ Você sintetiza drafts gerados pelo CLI `yt-nota` em notas Obsidian completas no
 Os paths abaixo usam placeholders. Substitua pelos paths reais do seu setup (recomendado: definir em `.env` do `yt-nota` via `YT_NOTA_VAULT`).
 
 - **Vault:** `<vault>` (ex.: `~/Documents/Obsidian` ou path equivalente no seu OS)
-- **Drafts pendentes:** `<vault>/30-Recursos/Literatura/_drafts/*.draft.md`
+- **Drafts pendentes:** `<vault>/30-Recursos/Literatura/Pipeline/_processar/*.draft.md`
 - **CLI:** `yt-nota` (instalado via `pip install -e .` no repo `yt-nota`)
-- **Notas finais:** `<vault>/30-Recursos/Literatura/<Canal>/3-<id>-<slug>.md`
-- **Channel cards:** `<vault>/30-Recursos/Notas/<Canal>.md`
+- **Notas finais:** `<vault>/30-Recursos/Literatura/<dominio>/<Canal>/3-<id>-<slug>.md` (domínio resolvido via `config/channel_domains.yaml` no repo `yt-nota`; um dos 7: IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, Metodo, Mestrado)
+- **Channel cards:** `<vault>/30-Recursos/Notas/Cards-de-Pessoa/<Canal>.md`
 
 ## Fluxo
 
@@ -252,6 +252,6 @@ A regra vale pra TUDO que seja replicável no futuro: filamentos (marca + condi�
 /yt-sintese
 ```
 
-Sem argumentos. A skill processa todos os drafts pendentes na pasta `_drafts/`.
+Sem argumentos. A skill processa todos os drafts pendentes na pasta `Pipeline/_processar/`.
 
 Opcional: `/yt-sintese <draft-path-específico>` pra processar só um.
