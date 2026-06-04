@@ -1,26 +1,44 @@
 # yt-nota
 
-> Este arquivo foi criado em 2026-06-04 pra registrar a regra de integração com o vault Obsidian. Adicione contexto específico do projeto conforme necessário (memória em `~/.claude/memory/project_yt_nota.md`).
+> Contexto pra IAs (Claude Code, Cursor, etc.) editando este repositório.
 
-## Escopo do projeto
+## Escopo
 
-CLI + skill `/yt-sintese`, sem custo de API. v0.3.0 (31/05/2026) com fallback Whisper local quando YouTube retorna 429. 89 testes passando. Produto open source.
+CLI Python + skill Claude Code `/yt-sintese` pra transformar vídeos do YouTube em notas Obsidian estruturadas. Whisper local fallback quando o YouTube limita as legendas (429). Zero custo de API (síntese acontece dentro da sessão Claude Code).
 
-## Integração com vault Obsidian
+## Onde o yt-nota escreve
 
-Este projeto **escreve no vault Obsidian** quando você roda `yt-nota <url>`:
-- Drafts em `C:\Users\thais\OneDrive\Documentos\Obsidian\30-Recursos\Literatura\Pipeline\_processar\` (a partir de 2026-06-04, era `_drafts/` antes)
+O CLI **escreve no vault Obsidian apontado por `YT_NOTA_VAULT`** (variável de ambiente; default em `src/yt_nota/config.py`). A estrutura esperada:
 
-Skill `/yt-sintese` processa os drafts e produz notas finais em:
-- `C:\Users\thais\OneDrive\Documentos\Obsidian\30-Recursos\Literatura\<dominio>\<canal>\` (segue 7 domínios do ROTEAMENTO)
+```
+<vault>/
+  30-Recursos/
+    Literatura/
+      Pipeline/_processar/                    ← drafts pendentes de síntese
+      <dominio>/<canal>/                      ← notas finais após /yt-sintese
+        3-<id>-<slug>.md
+        transcripts/3-<id>-<slug>.transcript.md
+    Notas/
+      Cards-de-Pessoa/<canal>.md              ← card vivo do canal
+```
 
-Quando criar, mover, renomear ou deletar nota no vault, respeitar as regras invariantes:
+Onde `<dominio>` é um dos 7 domínios temáticos válidos resolvidos via:
+1. Flag `--dominio` (override explícito)
+2. Frontmatter `dominio:` do draft
+3. Lookup em `config/channel_domains.yaml` (configuração pessoal, não versionada — copie de `config/channel_domains.example.yaml`)
 
-1. **Ler antes:** `C:\Users\thais\OneDrive\Documentos\Obsidian\30-Recursos\Sistema\REGRAS-VAULT.md` — perfil cognitivo TDAH, princípio Zettelkasten, 7 domínios, regras anti-entropia, regra dos 3 cliques.
-2. **Aplicar destino:** `C:\Users\thais\OneDrive\Documentos\Obsidian\30-Recursos\Sistema\ROTEAMENTO.md` — Tabela A (curadoria de fontes) decide o domínio do canal.
+Sem mapping nem override, o CLI aborta com `DomainResolutionError`.
 
-Em conflito entre instrução pontual e estas regras, perguntar à Thais antes de quebrar. Para validar drift, rodar `/vault-checkup --validar` sob demanda.
+## Convenções importantes
 
-## Histórico de migração
+- **Sem dependências do Anthropic SDK em runtime.** A síntese roda dentro da skill `/yt-sintese`, não na CLI. CLI extrai e prepara; Claude Code sintetiza.
+- **Drafts são sempre intermediários.** A skill consome e deleta o draft após produzir a nota final + transcript + atualizar o channel card.
+- **Domain mapping é opcional mas recomendado.** Sem `config/channel_domains.yaml` o usuário precisa passar `--dominio` em cada execução.
 
-- **2026-06-04 (v0.4.0):** Realinhamento completo com vault Fase A+B. Drafts em `Pipeline/_processar/`, notas em `Literatura/<dominio>/<canal>/`, cards em `Notas/Cards-de-Pessoa/<canal>.md`. Mapping em `config/channel_domains.yaml`. Resolução de domínio em cascata via `src/yt_nota/domain.py`. Ver CHANGELOG `[0.4.0]`.
+## Stack
+
+Python ≥ 3.10, `yt-dlp`, `faster-whisper` (opcional, pra fallback), `pyyaml`, `python-dotenv`. Testes: `pytest`. Sem CI integrado por enquanto.
+
+## Mais
+
+Veja `README.md` pra setup, `docs/plan.md` pra arquitetura, `CHANGELOG.md` pra histórico de versões.
