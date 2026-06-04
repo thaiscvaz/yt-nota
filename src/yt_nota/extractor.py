@@ -183,27 +183,85 @@ def _fetch_vtt(sub_entries: list) -> str:
     return r.text
 
 
-def extract_transcript(video: dict) -> Optional[dict]:
-    """Recebe video normalizado (com _raw_subs e _raw_auto). Retorna transcript ou None."""
+def extract_transcript(
+    video: dict,
+    *,
+    whisper_fallback: bool = False,
+    whisper_model: str = "small",
+    with_cookies: bool = False,
+) -> Optional[dict]:
+    """Recebe video normalizado (com _raw_subs e _raw_auto). Retorna transcript ou None.
+
+    Se `whisper_fallback=True` e o YouTube responder 429 nas legendas, baixa o áudio
+    e transcreve localmente com faster-whisper (precisa `pip install yt-nota[whisper]`).
+    """
     pick = _pick_subtitle(video.get("_raw_subs", {}), video.get("_raw_auto", {}))
-    if pick is None:
-        return None
 
-    lang, is_auto, entries = pick
+    if pick is not None:
+        lang, is_auto, entries = pick
+        try:
+            vtt_text = _fetch_vtt(entries)
+            segments = parse_vtt(vtt_text)
+            if segments:
+                return {
+                    "language": lang,
+                    "is_auto": is_auto,
+                    "origin": "auto" if is_auto else "manual",
+                    "segments": segments,
+                }
+        except RateLimitError:
+            if not whisper_fallback:
+                raise
+            log.warning(
+                "Rate limit 429 nas legendas. Caindo no Whisper local (modelo %s)...",
+                whisper_model,
+            )
+            return _try_whisper_fallback(
+                video, model=whisper_model, preferred_lang=lang, with_cookies=with_cookies
+            )
+        except ExtractError as e:
+            log.warning("Falha buscando transcript em %s: %s", lang, e)
+
+    # Sem legenda disponível no YouTube. Whisper fallback opcional aqui também
+    # quando o usuário quer transcript pra vídeos que não têm captions.
+    if whisper_fallback:
+        log.info("Sem legenda disponível. Tentando Whisper local (modelo %s)...", whisper_model)
+        return _try_whisper_fallback(
+            video, model=whisper_model, preferred_lang=None, with_cookies=with_cookies
+        )
+
+    return None
+
+
+def _try_whisper_fallback(
+    video: dict, *, model: str, preferred_lang: Optional[str], with_cookies: bool
+) -> Optional[dict]:
+    """Wrapper isolado pra import tardio do módulo whisper_fallback (optional dep)."""
     try:
-        vtt_text = _fetch_vtt(entries)
-    except RateLimitError:
-        raise
-    except ExtractError as e:
-        log.warning("Falha buscando transcript em %s: %s", lang, e)
+        from . import whisper_fallback
+    except ImportError:
+        log.warning("Whisper fallback indisponível (import falhou).")
         return None
 
-    segments = parse_vtt(vtt_text)
-    if not segments:
+    if not whisper_fallback.is_available():
+        log.warning(
+            "Whisper fallback solicitado mas faster-whisper não está instalado. "
+            "Instale com: pip install yt-nota[whisper]"
+        )
         return None
 
-    return {
-        "language": lang,
-        "is_auto": is_auto,
-        "segments": segments,
-    }
+    # Normaliza dica de idioma pro Whisper: pt-BR/pt-orig → pt, en-US/en-GB → en
+    lang_hint = None
+    if preferred_lang:
+        prefix = preferred_lang.split("-")[0].lower()
+        if prefix in {"pt", "en", "es", "fr", "de", "it", "ja", "zh"}:
+            lang_hint = prefix
+
+    url = video.get("url") or ""
+    if not url:
+        log.warning("Whisper fallback: video sem URL, abortando.")
+        return None
+
+    return whisper_fallback.transcribe_from_video(
+        url, model_size=model, language=lang_hint, with_cookies=with_cookies
+    )

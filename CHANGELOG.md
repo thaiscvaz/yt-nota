@@ -2,6 +2,27 @@
 
 Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [0.3.0] - 2026-05-31
+
+### Adicionado
+- **Fallback Whisper local quando YouTube responde 429 nas legendas.** Novo módulo `whisper_fallback.py` baixa só o áudio (formato 139, m4a 49 kbps, ~5 MB por 13 min) via yt-dlp programático e transcreve com `faster-whisper` em CPU int8. O endpoint de áudio do YouTube não está rate-limited (só o `timedtext`), então o fallback funciona mesmo quando legendas falham. Modelo default `small` (244 MB) processa a ~0.3x realtime em CPU. 13 min de vídeo viram 4 min de processo.
+- **Optional dependency `[whisper]`**: `pip install yt-nota[whisper]` instala `faster-whisper>=1.0.0`. Sem essa instalação, o fallback é silenciosamente skip e o comportamento da v0.2.4 (parada precoce + `.pending.txt`) é preservado.
+- **Flags CLI novas**:
+  - `--whisper-fallback` / `--no-whisper-fallback`: liga/desliga (default ligado)
+  - `--whisper-model {tiny,base,small,medium,large,large-v2,large-v3}`: escolha o modelo (default `small`)
+- **Env vars**:
+  - `YT_NOTA_WHISPER_FALLBACK=0` desativa
+  - `YT_NOTA_WHISPER_MODEL=base` muda o modelo default
+- **Frontmatter do draft**: campo `transcript_origem` agora aceita `whisper-local` (além de `auto`/`manual`). A skill `/yt-sintese` lê esse campo e pode aplicar lógica diferente se quiser (atualmente todos seguem o mesmo fluxo de síntese).
+- Função `extract_transcript()` ganhou kwargs `whisper_fallback`, `whisper_model`, `with_cookies`. Quando captação por VTT falha com 429 e `whisper_fallback=True`, cai automático no Whisper.
+
+### Why
+Em 2025 o endpoint `timedtext` do YouTube passou a rate-limitar muito mais agressivo. Em cenário real de batch (vários vídeos longos, em PT-BR técnico), nem backoff exponencial até 45s nem cookies do browser nem atualização pro yt-dlp pré-release foram suficientes. Todas as URLs retornavam 429. O endpoint de áudio (`googlevideo`) continuou livre. Whisper local resolveu definitivamente, sem dependência do servidor de legendas. Esse cenário virou comum o suficiente em 2026 que justifica embutir o fallback no CLI.
+
+### Compatibilidade
+- **Retrocompatível**: comportamento default mudou de "para no 429 com pending.txt" pra "tenta Whisper, se Whisper indisponível mantém parada precoce". Quem não tem `faster-whisper` instalado vê o mesmo comportamento da v0.2.4. Quem quer o comportamento antigo explícito: `--no-whisper-fallback`.
+- Campo `is_auto` (bool) do dict retornado por `extract_transcript()` ainda existe; só foi adicionado um campo `origin` (str) que diferencia `manual` / `auto` / `whisper-local`.
+
 ## [0.2.4] - 2026-05-26
 
 ### Adicionado

@@ -139,14 +139,20 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
             return True
 
     try:
-        transcript = extract_transcript(video)
+        transcript = extract_transcript(
+            video,
+            whisper_fallback=args.whisper_fallback_enabled,
+            whisper_model=args.whisper_model_resolved,
+            with_cookies=args.with_cookies,
+        )
     except RateLimitError:
         raise
     if transcript:
+        origin = transcript.get("origin") or ("auto" if transcript.get("is_auto") else "manual")
         log.info(
             "  Transcript: %s (%s, %d segmentos)",
             transcript["language"],
-            "auto" if transcript["is_auto"] else "manual",
+            origin,
             len(transcript["segments"]),
         )
     else:
@@ -354,6 +360,26 @@ def main() -> None:
         help="Reprocessa mesmo se video_id já tem nota/draft no vault (sobrescreve dedup)",
     )
 
+    parser.add_argument(
+        "--whisper-fallback",
+        dest="whisper_fallback",
+        action="store_true",
+        default=None,
+        help="Força usar Whisper local quando 429. Default: ativado (override com --no-whisper-fallback ou YT_NOTA_WHISPER_FALLBACK=0)",
+    )
+    parser.add_argument(
+        "--no-whisper-fallback",
+        dest="whisper_fallback",
+        action="store_false",
+        help="Desativa o fallback Whisper (mantém parada precoce no 429)",
+    )
+    parser.add_argument(
+        "--whisper-model",
+        choices=sorted({"tiny", "base", "small", "medium", "large", "large-v2", "large-v3"}),
+        default=None,
+        help="Modelo Whisper pro fallback. Default: 'small' (244 MB, ótimo PT-BR). Override com YT_NOTA_WHISPER_MODEL.",
+    )
+
     parser.add_argument("--finalize", metavar="DRAFT", help="Finalize um draft (precisa --body-file ou stdin)")
     parser.add_argument("--body-file", help="Arquivo com body sintetizado (modo finalize)")
     parser.add_argument("--no-channel-card", action="store_true", help="Pula channel card (modo finalize)")
@@ -364,6 +390,11 @@ def main() -> None:
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"yt-nota {__version__}")
     args = parser.parse_args()
+
+    # Resolve Whisper opts em cascata: CLI flag > env var > default
+    from .whisper_fallback import resolve_enabled_from_env, resolve_model_from_env
+    args.whisper_fallback_enabled = resolve_enabled_from_env(args.whisper_fallback)
+    args.whisper_model_resolved = resolve_model_from_env(args.whisper_model)
 
     _setup_logging(args.verbose)
 

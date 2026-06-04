@@ -79,6 +79,8 @@ Flags úteis:
 - `--tema "IA-e-Programacao"` salva o tema no draft; o finalize atualiza o MOC correspondente
 - `--with-cookies` usa cookies do Chrome (Chrome precisa estar FECHADO no Windows). Pra vídeos restritos por idade/região.
 - `-v` verbose
+- `--no-whisper-fallback` desliga o fallback Whisper se quiser o comportamento antigo (parar no 429 e salvar `.pending.txt`)
+- `--whisper-model base` escolhe um modelo diferente (default `small`)
 
 Depois de criar um ou mais drafts, abre o Claude Code e digita:
 ```
@@ -108,6 +110,51 @@ A nota síntese tem: `em uma frase`, `o que defende`, `o que mais me marcou` (co
 
 Música, alguns shorts e lives sem captions cobrem essa categoria. O draft é criado mesmo assim, com `transcript: indisponivel`. A síntese usa só metadata + descrição.
 
+## Fallback Whisper local (v0.3.0+)
+
+Desde 2025 o endpoint de legendas do YouTube (`timedtext`) ficou muito mais agressivo no rate limit (HTTP 429). Backoff exponencial não resolve mais. O endpoint de **áudio** continua livre, então `yt-nota` cai automaticamente em Whisper local quando legendas falham.
+
+### Instalação
+
+```bash
+pip install yt-nota[whisper]
+```
+
+Isso adiciona `faster-whisper>=1.0.0` (250 MB de deps + 244 MB do modelo `small` baixado no primeiro uso pro cache do Hugging Face). Sem essa instalação extra, o fallback é silenciosamente skip e o comportamento da v0.2.4 (parada precoce + `.pending.txt`) é preservado.
+
+### Como funciona
+
+Quando o YouTube retorna 429 nas legendas:
+
+1. yt-dlp baixa o **áudio** do vídeo (formato 139, m4a 49 kbps, ~5 MB por 13 min) — endpoint diferente, sem rate limit
+2. faster-whisper transcreve em CPU int8 (~0.3x realtime: 13 min de vídeo = 4 min de processo)
+3. Os segments produzidos seguem o mesmo formato `Segment(t, text)` dos VTTs, então o draft é idêntico
+4. O frontmatter ganha `transcript_origem: whisper-local` (em vez de `auto`/`manual`)
+
+### Configuração
+
+```bash
+# Liga/desliga (default ligado)
+yt-nota <url> --whisper-fallback         # explícito
+yt-nota <url> --no-whisper-fallback      # mantém comportamento v0.2.4
+
+# Escolha do modelo (default small)
+yt-nota <url> --whisper-model base       # 74 MB, ~2x mais rápido, qualidade aceitável
+yt-nota <url> --whisper-model medium     # 769 MB, ~1x realtime, qualidade máxima sem GPU
+
+# Via env (para automação)
+YT_NOTA_WHISPER_FALLBACK=0 yt-nota <url>
+YT_NOTA_WHISPER_MODEL=base yt-nota <url>
+```
+
+| Modelo | Tamanho | Velocidade | Qualidade PT-BR técnico |
+|---|---|---|---|
+| `tiny` | 39 MB | ~0.08x realtime | Ruim (só preview) |
+| `base` | 74 MB | ~0.15x realtime | Aceitável |
+| `small` (default) | 244 MB | ~0.3x realtime | **Excelente** |
+| `medium` | 769 MB | ~1x realtime | Máxima sem GPU |
+| `large-v3` | 1.5 GB | ~2x realtime | Máxima absoluta (GPU recomendado) |
+
 ## Testes
 
 ```bash
@@ -118,8 +165,9 @@ pytest
 ## Roadmap (não no escopo atual)
 
 - Watch folder: processa URLs adicionadas a um `.txt` automaticamente
-- Whisper local pra vídeos sem captions
+- ~~Whisper local pra vídeos sem captions~~ ✅ adicionado em v0.3.0
 - Modo `--api` opcional (back to Anthropic SDK) se quiser automação total um dia
+- Suporte GPU pra Whisper (CUDA/Metal) — atualmente roda CPU int8 que é suficiente pra batches normais
 
 ## Licença
 

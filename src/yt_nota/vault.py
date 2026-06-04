@@ -91,7 +91,11 @@ def write_draft(
         fm.append(f"duracao: {video['duration_human']}")
     if transcript_info:
         fm.append(f"idioma_transcript: {transcript_info['language']}")
-        fm.append(f"transcript_origem: {'auto' if transcript_info['is_auto'] else 'manual'}")
+        # `origin` é preferido (suporta 'whisper-local'); fallback no is_auto pra retrocompat
+        origem = transcript_info.get("origin") or (
+            "auto" if transcript_info.get("is_auto") else "manual"
+        )
+        fm.append(f"transcript_origem: {origem}")
     else:
         fm.append("transcript: indisponivel")
     if video.get("tags"):
