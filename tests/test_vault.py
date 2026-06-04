@@ -25,16 +25,22 @@ from yt_nota.transcript import Segment
 def fake_vault(tmp_path, monkeypatch):
     """Aponta vault.py pra um vault temporário pra cada teste."""
     literatura = tmp_path / "30-Recursos" / "Literatura"
-    notas = tmp_path / "30-Recursos" / "Notas"
-    drafts = literatura / "_drafts"
+    cards = tmp_path / "30-Recursos" / "Notas" / "Cards-de-Pessoa"
+    drafts = literatura / "Pipeline" / "_processar"
     literatura.mkdir(parents=True)
-    notas.mkdir(parents=True)
+    cards.mkdir(parents=True)
     drafts.mkdir(parents=True)
 
     monkeypatch.setattr(vault, "VAULT_PATH", tmp_path)
     monkeypatch.setattr(vault, "LITERATURA_DIR", literatura)
-    monkeypatch.setattr(vault, "NOTAS_DIR", notas)
-    monkeypatch.setattr(vault, "DRAFTS_DIR", drafts)
+    monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", cards)
+    monkeypatch.setattr(vault, "PROCESSAR_DIR", drafts)
+
+    # Mock do mapping de domínio: Canal-Teste vai pra IA-Engenharia
+    # (sem isso, resolve() lê config/channel_domains.yaml real e falha)
+    # NOTA: substituir _load_mapping bypassa o lru_cache, então não precisa reload.
+    from yt_nota import domain
+    monkeypatch.setattr(domain, "_load_mapping", lambda: {"Canal-Teste": "IA-Engenharia"})
     return tmp_path
 
 
@@ -107,7 +113,7 @@ def test_as_str_with_number():
 # write_draft
 # ---------------------------------------------------------------------------
 
-def test_write_draft_creates_file_in_drafts_dir(fake_vault):
+def test_write_draft_creates_file_in_processar_dir(fake_vault):
     video = _sample_video()
     segs = _sample_segments()
     info = _sample_transcript_info()
@@ -115,7 +121,7 @@ def test_write_draft_creates_file_in_drafts_dir(fake_vault):
     path = vault.write_draft(video, segs, info)
 
     assert path.exists()
-    assert path.parent.name == "_drafts"
+    assert path.parent.name == "_processar"
     assert path.suffix == ".md"
     assert path.name.endswith(".draft.md")
 
@@ -358,6 +364,62 @@ def test_dedup_detects_existing_draft(fake_vault):
     assert already is True
     assert evidence is not None
     assert evidence.name.endswith(".draft.md")
+
+
+# ---------------------------------------------------------------------------
+# Vault Fase A+B (2026-06-04): hierarquia <dominio>/<canal>/ + Cards-de-Pessoa/
+# ---------------------------------------------------------------------------
+
+def test_finalize_writes_note_in_dominio_subfolder(fake_vault):
+    """Nota final cai em Literatura/<Dominio>/<Canal>/, não em Literatura/<Canal>/."""
+    path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    result = vault.finalize_draft(path, "body")
+
+    note = result["note_path"]
+    assert note.parent.name == "Canal-Teste"
+    assert note.parent.parent.name == "IA-Engenharia"
+    assert note.parent.parent.parent.name == "Literatura"
+
+
+def test_finalize_writes_channel_card_in_cards_de_pessoa(fake_vault):
+    """Channel card cai em Notas/Cards-de-Pessoa/, não em Notas/."""
+    path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    result = vault.finalize_draft(path, "body")
+
+    card = result["channel_card_path"]
+    assert card is not None
+    assert card.parent.name == "Cards-de-Pessoa"
+    assert card.parent.parent.name == "Notas"
+
+
+def test_finalize_dominio_override_wins_over_yaml(fake_vault):
+    """--dominio override força destino diferente do mapping YAML."""
+    path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    result = vault.finalize_draft(path, "body", dominio_override="Carreira")
+
+    assert result["note_path"].parent.parent.name == "Carreira"
+
+
+def test_write_draft_persists_dominio_in_frontmatter(fake_vault):
+    """write_draft grava `dominio:` no frontmatter quando recebe o param."""
+    path = vault.write_draft(
+        _sample_video(),
+        _sample_segments(),
+        _sample_transcript_info(),
+        dominio="IA-Engenharia",
+    )
+    assert "dominio: IA-Engenharia" in path.read_text(encoding="utf-8")
+
+
+def test_finalize_aborts_on_unknown_channel_without_override(fake_vault, monkeypatch):
+    """Canal sem mapping YAML e sem override deve propagar DomainResolutionError."""
+    from yt_nota import domain
+    domain.reload_mapping()
+    monkeypatch.setattr(domain, "_load_mapping", lambda: {})
+
+    path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    with pytest.raises(domain.DomainResolutionError):
+        vault.finalize_draft(path, "body")
 
 
 def test_dedup_different_video_id_returns_false(fake_vault):

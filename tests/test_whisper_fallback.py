@@ -267,11 +267,11 @@ class TestVaultWritesWhisperOrigin:
         from yt_nota import vault
 
         literatura = tmp_path / "30-Recursos" / "Literatura"
-        drafts = literatura / "_drafts"
+        drafts = literatura / "Pipeline" / "_processar"
         drafts.mkdir(parents=True)
-        monkeypatch.setattr(vault, "DRAFTS_DIR", drafts)
+        monkeypatch.setattr(vault, "PROCESSAR_DIR", drafts)
         monkeypatch.setattr(vault, "LITERATURA_DIR", literatura)
-        monkeypatch.setattr(vault, "NOTAS_DIR", tmp_path / "30-Recursos" / "Notas")
+        monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", tmp_path / "30-Recursos" / "Notas" / "Cards-de-Pessoa")
         monkeypatch.setattr(vault, "VAULT_PATH", tmp_path)
 
         video = {
@@ -303,11 +303,11 @@ class TestVaultWritesWhisperOrigin:
         from yt_nota import vault
 
         literatura = tmp_path / "30-Recursos" / "Literatura"
-        drafts = literatura / "_drafts"
+        drafts = literatura / "Pipeline" / "_processar"
         drafts.mkdir(parents=True)
-        monkeypatch.setattr(vault, "DRAFTS_DIR", drafts)
+        monkeypatch.setattr(vault, "PROCESSAR_DIR", drafts)
         monkeypatch.setattr(vault, "LITERATURA_DIR", literatura)
-        monkeypatch.setattr(vault, "NOTAS_DIR", tmp_path / "30-Recursos" / "Notas")
+        monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", tmp_path / "30-Recursos" / "Notas" / "Cards-de-Pessoa")
         monkeypatch.setattr(vault, "VAULT_PATH", tmp_path)
 
         video = {

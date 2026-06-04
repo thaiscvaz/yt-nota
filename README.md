@@ -19,7 +19,7 @@ Consumir YouTube como fonte de aprendizado vira fricção em batch. Manual: abri
 └─────────────────────┘         └────────────────────────┘
 ```
 
-**Passo 1 (terminal):** `yt-nota <url>` extrai metadata + transcript via yt-dlp e escreve um **draft** em `<vault>/30-Recursos/Literatura/_drafts/`.
+**Passo 1 (terminal):** `yt-nota <url>` extrai metadata + transcript via yt-dlp e escreve um **draft** em `<vault>/30-Recursos/Literatura/Pipeline/_processar/`.
 
 **Passo 2 (Claude Code):** invoca `/yt-sintese`. A skill lê todos os drafts pendentes, gera o body da nota (7 seções), chama `yt-nota --finalize` que monta a nota final + transcript bruto + atualiza channel card, e deleta o draft.
 
@@ -89,7 +89,7 @@ Depois de criar um ou mais drafts, abre o Claude Code e digita:
 
 A skill processa tudo. Pra um draft específico:
 ```
-/yt-sintese <user-home>\<cloud-storage>\...\_drafts\<arquivo>.draft.md
+/yt-sintese <user-home>\<cloud-storage>\...\Pipeline\_processar\<arquivo>.draft.md
 ```
 
 ## O que sai
@@ -97,12 +97,14 @@ A skill processa tudo. Pra um draft específico:
 Por vídeo processado:
 
 ```
-<vault>/30-Recursos/Literatura/<Canal>/
-├── 3-<timestamp>-<slug>.md              ← síntese (frontmatter + 7 seções)
-└── 3-<timestamp>-<slug>.transcript.md   ← transcript com timestamps
+<vault>/30-Recursos/Literatura/<dominio>/<Canal>/
+├── 3-<timestamp>-<slug>.md                       ← síntese (frontmatter + 7 seções)
+└── transcripts/3-<timestamp>-<slug>.transcript.md ← transcript com timestamps
 
-<vault>/30-Recursos/Notas/<Canal>.md     ← channel card (criado/atualizado)
+<vault>/30-Recursos/Notas/Cards-de-Pessoa/<Canal>.md  ← channel card (criado/atualizado)
 ```
+
+`<dominio>` é um dos 7 da REGRAS-VAULT (IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, Metodo, Mestrado). Resolvido em cascata: flag `--dominio` → frontmatter do draft → lookup em `config/channel_domains.yaml`. Canal novo precisa entrar no YAML antes do finalize, ou o CLI aborta com instrução clara.
 
 A nota síntese tem: `em uma frase`, `o que defende`, `o que mais me marcou` (com timestamp), `o que isso muda pra mim`, `dicionário` (4-7 termos), `notas permanentes a criar`, `referência`.
 

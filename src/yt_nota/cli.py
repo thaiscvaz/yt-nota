@@ -3,7 +3,7 @@
 Três modos, determinados por flags:
 
 - (default) `yt-nota <url>...` extrai metadata + transcript e escreve draft em
-  `<vault>/30-Recursos/Literatura/_drafts/`. A síntese acontece via skill
+  `<vault>/30-Recursos/Literatura/Pipeline/_processar/`. A síntese acontece via skill
   `/yt-sintese` no Claude Code (zero custo de API).
 
 - `yt-nota --finalize <draft.md>` lê o draft + body sintetizado (via --body-file
@@ -22,7 +22,8 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .config import DRAFTS_DIR, VAULT_PATH
+from .config import PROCESSAR_DIR, VAULT_PATH
+from .domain import DomainResolutionError, resolve as resolve_dominio
 from .extractor import (
     ExtractError,
     RateLimitError,
@@ -131,9 +132,20 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         video.get("upload_date_iso") or "sem data",
     )
 
+    canal_slug_str = channel_slug(video["channel"] or "Canal-Desconhecido")
+
+    # Resolução de domínio em cascata: --dominio > lookup channel_domains.yaml.
+    # Sem domínio resolvido, aborta esse vídeo (regra do vault exige hierarquia).
+    try:
+        dominio = resolve_dominio(canal_slug_str, override=args.dominio)
+    except DomainResolutionError as e:
+        log.error("  %s", e)
+        return False
+
     if not args.force:
-        canal_slug_str = channel_slug(video["channel"] or "Canal-Desconhecido")
-        already, evidence = is_video_already_processed(video["video_id"], canal_slug_str)
+        already, evidence = is_video_already_processed(
+            video["video_id"], canal_slug_str, dominio=dominio
+        )
         if already:
             log.info("  Já processado, pulando: %s", _rel(evidence) if evidence else "")
             return True
@@ -174,6 +186,7 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         transcript["segments"] if transcript else None,
         transcript,
         tema=args.tema,
+        dominio=dominio,
     )
     log.info("  Draft: %s", _rel(draft_path))
     return True
@@ -255,7 +268,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             pending = list_pending_drafts()
             log.info(
                 "Drafts pendentes em %s (%d total). Invoque `/yt-sintese` no Claude Code pra processar.",
-                _rel(DRAFTS_DIR),
+                _rel(PROCESSAR_DIR),
                 len(pending),
             )
 
@@ -295,6 +308,7 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
         body,
         no_channel_card=args.no_channel_card,
         delete_draft=not args.keep_draft,
+        dominio_override=args.dominio,
     )
     log.info("Nota: %s", _rel(result["note_path"]))
     if result["transcript_path"]:
@@ -341,6 +355,13 @@ def main() -> None:
     )
     parser.add_argument("--stdin", action="store_true", help="Lê URLs do stdin")
     parser.add_argument("--tema", help="Tema (MOC) — usado pelo finalize depois")
+    parser.add_argument(
+        "--dominio",
+        help=(
+            "Domínio do vault (IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, "
+            "Metodo, Mestrado). Override do lookup em config/channel_domains.yaml."
+        ),
+    )
     parser.add_argument(
         "--sleep",
         type=int,
