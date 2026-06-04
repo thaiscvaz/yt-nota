@@ -1,6 +1,8 @@
 """Resolução de domínio do vault (7 domínios temáticos) pra cada canal.
 
-Lookup carrega `config/channel_domains.yaml` na primeira chamada (cached).
+Lookup carrega `config/channel_domains.yaml` (pessoal, não versionado).
+Se não existe, fallback pra `channel_domains.example.yaml` (versionado, só
+canais públicos amplamente conhecidos).
 Override programático via CLI flag `--dominio` ou frontmatter `dominio:` do draft.
 """
 
@@ -20,11 +22,18 @@ class DomainResolutionError(Exception):
 
 @lru_cache(maxsize=1)
 def _load_mapping() -> dict[str, str]:
-    if not DOMAINS_CONFIG_PATH.exists():
-        return {}
-    with DOMAINS_CONFIG_PATH.open(encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    return {str(k): str(v) for k, v in data.items()}
+    # Prioriza o YAML pessoal do usuário (não versionado); cai no .example
+    # (versionado, só canais neutros) se o primeiro não existe.
+    candidates = [
+        DOMAINS_CONFIG_PATH,
+        DOMAINS_CONFIG_PATH.with_name(DOMAINS_CONFIG_PATH.stem + ".example.yaml"),
+    ]
+    for path in candidates:
+        if path.exists():
+            with path.open(encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return {str(k): str(v) for k, v in data.items()}
+    return {}
 
 
 def validate(dominio: str) -> str:
