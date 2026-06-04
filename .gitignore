@@ -14,3 +14,9 @@ htmlcov/
 *.log
 .DS_Store
 Thumbs.db
+
+# Estado pessoal de uso (vault, batches, queues por canal, scripts ad-hoc)
+STATE.md
+_batches/
+queues/
+scripts/chain-*.sh
