@@ -104,7 +104,7 @@ Por vídeo processado:
 <vault>/30-Recursos/Notas/Cards-de-Pessoa/<Canal>.md  ← channel card (criado/atualizado)
 ```
 
-`<dominio>` é um dos 7 da REGRAS-VAULT (IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, Metodo, Mestrado). Resolvido em cascata: flag `--dominio` → frontmatter do draft → lookup em `config/channel_domains.yaml`. Canal novo precisa entrar no YAML antes do finalize, ou o CLI aborta com instrução clara.
+`<dominio>` é um valor da taxonomia configurável do seu vault, definida em `config/domains.yaml` (copie de `config/domains.example.yaml`). Resolvido em cascata: flag `--dominio` → frontmatter do draft → lookup em `config/channel_domains.yaml`. Canal novo precisa entrar no YAML antes do finalize, ou o CLI aborta com instrução clara.
 
 A nota síntese tem: `em uma frase`, `o que defende`, `o que mais me marcou` (com timestamp), `o que isso muda pra mim`, `dicionário` (4-7 termos), `notas permanentes a criar`, `referência`.
 

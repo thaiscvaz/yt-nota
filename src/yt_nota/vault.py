@@ -5,8 +5,8 @@ Dois modos:
   + `dominio` na pasta `Pipeline/_processar/`. A síntese acontece depois via skill
   `/yt-sintese` no Claude Code.
 - `finalize`: chamado pelo subcomando `yt-nota finalize`. Recebe o body sintetizado,
-  monta a nota final em `Literatura/<dominio>/<canal>/` + transcript + channel card
-  em `Notas/Cards-de-Pessoa/<canal>.md` + (opcional) MOC tema.
+  monta a nota final em `30-Recursos/<dominio>/<canal>/` + transcript + channel card
+  em `30-Recursos/Pessoas/<canal>.md` + (opcional) MOC tema.
 """
 
 from __future__ import annotations
@@ -18,11 +18,11 @@ from typing import Optional
 
 import yaml
 
+from . import config
 from .config import (
     CARDS_DE_PESSOA_DIR,
-    LITERATURA_DIR,
     PROCESSAR_DIR,
-    VALID_DOMINIOS,
+    RECURSOS_DIR,
     VAULT_PATH,
 )
 from .slug import channel_slug, title_slug
@@ -128,7 +128,7 @@ def write_draft(
         "",
         "> [!warning] Síntese pendente",
         "> Esse arquivo aguarda processamento via skill `/yt-sintese` no Claude Code.",
-        "> Quando processado, vira nota final em `30-Recursos/Literatura/<dominio>/<canal>/`,",
+        "> Quando processado, vira nota final em `30-Recursos/<dominio>/<canal>/`,",
         "> com transcript em arquivo irmão e atualização do channel card. Este draft é deletado.",
         "",
     ]
@@ -151,6 +151,7 @@ def write_draft(
         body_parts.append("")
 
     draft_path.write_text("\n".join(body_parts), encoding="utf-8")
+    _register_draft_in_index(video.get("video_id") or "", draft_path)
     return draft_path
 
 
@@ -219,7 +220,7 @@ def finalize_draft(
 
     dominio = resolve_dominio(canal_slug_str, override=dominio_override or meta.get("dominio"))
 
-    canal_dir = LITERATURA_DIR / dominio / canal_slug_str
+    canal_dir = RECURSOS_DIR / dominio / canal_slug_str
     canal_dir.mkdir(parents=True, exist_ok=True)
 
     note_path = _unique_path(canal_dir / f"3-{ts_id}-{slug}.md")
@@ -255,6 +256,10 @@ def finalize_draft(
             draft_path.unlink()
         except OSError:
             pass
+
+    # O finalize move conteúdo (draft → nota), então qualquer índice de dedup
+    # construído antes ficou stale. Reset é barato; o próximo check re-escaneia.
+    reset_dedup_index()
 
     return {
         "note_path": note_path,
@@ -403,8 +408,9 @@ def _update_channel_card(
 
 def _update_moc(tema: str, meta: dict, note_stem: str) -> Optional[Path]:
     candidates = [
+        VAULT_PATH / "30-Recursos" / tema / f"{tema}.md",
         VAULT_PATH / "30-Recursos" / f"{tema}.md",
-        VAULT_PATH / "20-Áreas" / tema / f"{tema}.md",
+        VAULT_PATH / "20-Areas" / tema / f"{tema}.md",
     ]
     moc_path = next((c for c in candidates if c.exists()), None)
     if moc_path is None:
@@ -442,6 +448,58 @@ def list_pending_drafts() -> list[Path]:
     return sorted(PROCESSAR_DIR.glob("*.draft.md"))
 
 
+# ---------------------------------------------------------------------------
+# Dedup index
+# ---------------------------------------------------------------------------
+# Cache em memória por diretório: {dir: {video_id: evidence_path}}. Cada diretório
+# é varrido UMA vez por execução (antes: releitura completa de todos os arquivos
+# a cada vídeo do batch). write_draft registra o draft novo no índice, então a
+# mesma URL duplicada numa queue continua dedupando dentro da mesma run.
+
+_dedup_index: dict[Path, dict[str, Path]] = {}
+
+_VIDEO_ID_CONTENT_RES = (
+    re.compile(r"^video_id:\s*(\S+)", re.MULTILINE),
+    re.compile(r"[?&]v=([A-Za-z0-9_-]+)"),
+)
+
+
+def reset_dedup_index() -> None:
+    """Invalida o índice (testes ou processos longos que editam o vault por fora)."""
+    _dedup_index.clear()
+
+
+def _index_dir(directory: Path, pattern: str) -> dict[str, Path]:
+    cached = _dedup_index.get(directory)
+    if cached is not None:
+        return cached
+    index: dict[str, Path] = {}
+    if directory.exists():
+        for f in sorted(directory.glob(pattern)):
+            try:
+                content = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for rx in _VIDEO_ID_CONTENT_RES:
+                for vid in rx.findall(content):
+                    index.setdefault(vid, f)
+    _dedup_index[directory] = index
+    return index
+
+
+def _register_draft_in_index(video_id: str, draft_path: Path) -> None:
+    idx = _dedup_index.get(PROCESSAR_DIR)
+    if idx is not None and video_id:
+        idx.setdefault(video_id, draft_path)
+
+
+def _check_canal_dir(canal_dir: Path, video_id: str) -> Optional[Path]:
+    hit = _index_dir(canal_dir, "3-*.md").get(video_id)
+    if hit is not None:
+        return hit
+    return _index_dir(canal_dir / "transcripts", "*.transcript.md").get(video_id)
+
+
 def is_video_already_processed(
     video_id: str,
     channel_slug: str,
@@ -460,43 +518,46 @@ def is_video_already_processed(
     # (cobre canais espalhados em mais de um domínio se houver overlap futuro).
     canal_dirs: list[Path] = []
     if dominio:
-        canal_dirs.append(LITERATURA_DIR / dominio / channel_slug)
-    if LITERATURA_DIR.exists():
-        for sub in LITERATURA_DIR.iterdir():
-            if sub.is_dir() and (sub / channel_slug).is_dir():
-                cand = sub / channel_slug
-                if cand not in canal_dirs:
-                    canal_dirs.append(cand)
+        canal_dirs.append(RECURSOS_DIR / dominio / channel_slug)
+    for dom in config.get_valid_dominios():
+        cand = RECURSOS_DIR / dom / channel_slug
+        if cand.is_dir() and cand not in canal_dirs:
+            canal_dirs.append(cand)
 
     for canal_dir in canal_dirs:
-        if not canal_dir.exists():
-            continue
-        for note in canal_dir.glob("3-*.md"):
-            if note.name.endswith(".transcript.md"):
-                continue
-            try:
-                content = note.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            if f"video_id: {video_id}" in content or f"v={video_id}" in content:
-                return True, note
-        transcripts_dir = canal_dir / "transcripts"
-        if transcripts_dir.exists():
-            for tr in transcripts_dir.glob("*.transcript.md"):
-                try:
-                    content = tr.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                if f"v={video_id}" in content or f"video_id: {video_id}" in content:
-                    return True, tr
+        hit = _check_canal_dir(canal_dir, video_id)
+        if hit is not None:
+            return True, hit
 
-    if PROCESSAR_DIR.exists():
-        for draft in PROCESSAR_DIR.glob("*.draft.md"):
-            try:
-                content = draft.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            if f"video_id: {video_id}" in content:
-                return True, draft
+    hit = _index_dir(PROCESSAR_DIR, "*.draft.md").get(video_id)
+    if hit is not None:
+        return True, hit
 
     return False, None
+
+
+def find_video_anywhere(video_id: str) -> Optional[Path]:
+    """Busca video_id em todos os domínios de 30-Recursos + drafts pendentes, sem saber o canal.
+
+    Usado pelo CLI pra dedup ANTES do extract_info (o canal só é conhecido após
+    a chamada de rede). Varre `30-Recursos/<dominio>/<canal>/` nos domínios válidos,
+    reusando o mesmo índice por diretório.
+    """
+    if not video_id:
+        return None
+
+    hit = _index_dir(PROCESSAR_DIR, "*.draft.md").get(video_id)
+    if hit is not None:
+        return hit
+
+    for dom in sorted(config.get_valid_dominios()):
+        dominio_dir = RECURSOS_DIR / dom
+        if not dominio_dir.is_dir():
+            continue
+        for canal_dir in sorted(dominio_dir.iterdir()):
+            if not canal_dir.is_dir():
+                continue
+            hit = _check_canal_dir(canal_dir, video_id)
+            if hit is not None:
+                return hit
+    return None

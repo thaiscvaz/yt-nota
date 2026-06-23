@@ -22,7 +22,7 @@ O CLI **escreve no vault Obsidian apontado por `YT_NOTA_VAULT`** (variável de a
       Cards-de-Pessoa/<canal>.md              ← card vivo do canal
 ```
 
-Onde `<dominio>` é um dos 7 domínios temáticos válidos resolvidos via:
+Onde `<dominio>` é um valor da taxonomia configurável do vault (definida em `config/domains.yaml`, copiada de `config/domains.example.yaml`), resolvido via:
 1. Flag `--dominio` (override explícito)
 2. Frontmatter `dominio:` do draft
 3. Lookup em `config/channel_domains.yaml` (configuração pessoal, não versionada — copie de `config/channel_domains.example.yaml`)
@@ -37,7 +37,7 @@ Sem mapping nem override, o CLI aborta com `DomainResolutionError`.
 
 ## Stack
 
-Python ≥ 3.10, `yt-dlp`, `faster-whisper` (opcional, pra fallback), `pyyaml`, `python-dotenv`. Testes: `pytest`. Sem CI integrado por enquanto.
+Python ≥ 3.10, `yt-dlp`, `httpx`, `faster-whisper` (opcional, pra fallback), `pyyaml`, `python-dotenv`. Testes: `pytest`. Sem CI integrado por enquanto.
 
 ## Mais
 

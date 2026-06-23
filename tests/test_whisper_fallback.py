@@ -266,12 +266,12 @@ class TestVaultWritesWhisperOrigin:
         """write_draft escreve transcript_origem: whisper-local quando dict tem origin."""
         from yt_nota import vault
 
-        literatura = tmp_path / "30-Recursos" / "Literatura"
-        drafts = literatura / "Pipeline" / "_processar"
+        recursos = tmp_path / "30-Recursos"
+        drafts = recursos / "Pipeline" / "_processar"
         drafts.mkdir(parents=True)
         monkeypatch.setattr(vault, "PROCESSAR_DIR", drafts)
-        monkeypatch.setattr(vault, "LITERATURA_DIR", literatura)
-        monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", tmp_path / "30-Recursos" / "Notas" / "Cards-de-Pessoa")
+        monkeypatch.setattr(vault, "RECURSOS_DIR", recursos)
+        monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", recursos / "Pessoas")
         monkeypatch.setattr(vault, "VAULT_PATH", tmp_path)
 
         video = {
@@ -302,12 +302,12 @@ class TestVaultWritesWhisperOrigin:
         """Sem campo `origin`, cai no is_auto bool (retrocompat com extractor v0.2.x)."""
         from yt_nota import vault
 
-        literatura = tmp_path / "30-Recursos" / "Literatura"
-        drafts = literatura / "Pipeline" / "_processar"
+        recursos = tmp_path / "30-Recursos"
+        drafts = recursos / "Pipeline" / "_processar"
         drafts.mkdir(parents=True)
         monkeypatch.setattr(vault, "PROCESSAR_DIR", drafts)
-        monkeypatch.setattr(vault, "LITERATURA_DIR", literatura)
-        monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", tmp_path / "30-Recursos" / "Notas" / "Cards-de-Pessoa")
+        monkeypatch.setattr(vault, "RECURSOS_DIR", recursos)
+        monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", recursos / "Pessoas")
         monkeypatch.setattr(vault, "VAULT_PATH", tmp_path)
 
         video = {

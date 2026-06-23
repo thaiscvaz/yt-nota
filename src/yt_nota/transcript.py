@@ -60,7 +60,7 @@ def _dedup_within_cue(lines: list[str]) -> list[str]:
     for line in lines:
         if not line:
             continue
-        if result and (line.startswith(result[-1] + " ") or line.startswith(result[-1])):
+        if result and line.startswith(result[-1]):
             result[-1] = line
         else:
             result.append(line)

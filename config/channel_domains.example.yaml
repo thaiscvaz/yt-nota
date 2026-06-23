@@ -9,19 +9,18 @@
 #   3. Lookup neste arquivo pelo canal_slug
 #   4. Se nada bater, CLI aborta pedindo --dominio ou inclusão aqui.
 #
-# Domínios válidos: IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, Metodo, Mestrado
+# Domínios válidos vêm da sua taxonomia em config/domains.yaml
+# (veja config/domains.example.yaml pros valores genéricos de exemplo).
 
-# Exemplos por domínio:
+# Exemplos genéricos por domínio (placeholders — troque pelos seus canais reais
+# no channel_domains.yaml, que não é versionado):
 
-# IA-Engenharia
-Fabio-Akita: IA-Engenharia
-AkitaOnRails: IA-Engenharia
-Boris-Cherny: IA-Engenharia
-Anthropic: IA-Engenharia
-Matheus-Battisti-Hora-de-Codar: IA-Engenharia
+# Technology
+Example-Tech-Channel: Technology
+Another-Tech-Channel: Technology
 
-# Metodo (PARA, BASB, Zettelkasten)
-Tiago-Forte: Metodo
+# Productivity
+Example-Productivity-Channel: Productivity
 
 # Adicione seus canais conforme processa o primeiro vídeo de cada um.
 # Se rodar `yt-nota <url>` e o canal não estiver mapeado, a CLI imprime

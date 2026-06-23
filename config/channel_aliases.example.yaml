@@ -1,0 +1,4 @@
+# Channel aliases: slug derived from the YouTube channel name -> canonical
+# vault folder slug. Copy to channel_aliases.yaml and add your own entries.
+# Example:
+# Some-Channel-Long-Name: Some-Channel

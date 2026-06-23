@@ -32,13 +32,20 @@ from .extractor import (
     is_playlist,
     normalize_video_info,
     playlist_video_urls,
+    video_id_from_url,
 )
 from .slug import channel_slug
 from .vault import (
     finalize_draft,
+    find_video_anywhere,
     is_video_already_processed,
     list_pending_drafts,
     write_draft,
+)
+from .whisper_fallback import (
+    SUPPORTED_MODELS,
+    resolve_enabled_from_env,
+    resolve_model_from_env,
 )
 
 log = logging.getLogger("yt-nota")
@@ -90,7 +97,7 @@ def _collect_urls(args: argparse.Namespace) -> list[str]:
 
 
 def _looks_like_playlist(url: str) -> bool:
-    return "list=" in url or "/playlist" in url
+    return "list=" in url or "/playlist" in url or "/@" in url or "/channel/" in url or "/c/" in url
 
 
 def _expand_playlists(urls: list[str], with_cookies: bool) -> list[str]:
@@ -111,18 +118,21 @@ def _expand_playlists(urls: list[str], with_cookies: bool) -> list[str]:
     return expanded
 
 
-def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) -> bool:
-    """Processa 1 vídeo. Propaga RateLimitError (caller decide parar a wave)."""
+def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) -> str:
+    """Processa 1 vídeo. Retorna "ok" | "skip" | "fail".
+
+    Propaga RateLimitError (caller decide parar a wave).
+    """
     log.info("[%d/%d] %s", idx, total, url)
     try:
         info = extract_info(url, with_cookies=args.with_cookies)
     except ExtractError as e:
         log.error("  Falha: %s", e)
-        return False
+        return "fail"
 
     if is_playlist(info):
         log.error("  URL parece playlist mas não foi expandida. Pulando.")
-        return False
+        return "fail"
 
     video = normalize_video_info(info)
     log.info(
@@ -140,7 +150,7 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         dominio = resolve_dominio(canal_slug_str, override=args.dominio)
     except DomainResolutionError as e:
         log.error("  %s", e)
-        return False
+        return "fail"
 
     if not args.force:
         already, evidence = is_video_already_processed(
@@ -148,7 +158,7 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         )
         if already:
             log.info("  Já processado, pulando: %s", _rel(evidence) if evidence else "")
-            return True
+            return "skip"
 
     try:
         transcript = extract_transcript(
@@ -179,7 +189,7 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
             for s in transcript["segments"][:5]:
                 sys.stdout.write(f"  [{s.t}] {s.text[:80]}\n")
         sys.stdout.write("\n")
-        return True
+        return "ok"
 
     draft_path = write_draft(
         video,
@@ -189,7 +199,7 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         dominio=dominio,
     )
     log.info("  Draft: %s", _rel(draft_path))
-    return True
+    return "ok"
 
 
 def _pending_path_for(source: str | None) -> Path:
@@ -200,6 +210,12 @@ def _pending_path_for(source: str | None) -> Path:
             return src
         return src.with_suffix(src.suffix + ".pending.txt") if src.suffix else src.with_name(src.name + ".pending.txt")
     return Path("yt-nota.pending.txt")
+
+
+def _failed_path_for(source: str | None) -> Path:
+    """Path do .failed.txt (URLs com falha individual, fora da parada por 429)."""
+    base = _pending_path_for(source)
+    return base.with_name(base.name.replace(".pending.txt", ".failed.txt"))
 
 
 def _save_pending(path: Path, remaining: list[str], reason: str) -> None:
@@ -223,33 +239,54 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 
     successes = 0
     rate_limit_streak = 0
+    first_429_idx = 0  # 1-based: primeira URL do streak de 429 (entra no pending)
     stopped_early = False
-    last_processed = 0
+    failures: list[str] = []
+    did_network = False
     source = args.retry_pending or args.file
     for i, url in enumerate(urls, 1):
-        if i > 1 and args.sleep > 0:
+        # Dedup sem rede: video_id parseado da URL. Vídeo já processado não gasta
+        # extract_info nem sleep — re-rodar uma queue grande vira no-op instantâneo.
+        if not args.force:
+            vid = video_id_from_url(url)
+            if vid:
+                evidence = find_video_anywhere(vid)
+                if evidence is not None:
+                    log.info("[%d/%d] Já processado, pulando: %s", i, len(urls), _rel(evidence))
+                    successes += 1
+                    continue
+
+        if did_network and args.sleep > 0:
             time.sleep(args.sleep)
+        did_network = True
         try:
-            ok = _process_single(url, args, i, len(urls))
-            if ok:
+            status = _process_single(url, args, i, len(urls))
+            if status in ("ok", "skip"):
                 successes += 1
+            else:
+                failures.append(url)
             rate_limit_streak = 0
-            last_processed = i
         except RateLimitError as e:
             log.error("  %s", e)
             rate_limit_streak += 1
-            last_processed = i - 1  # esse não conta como processado
-            if rate_limit_streak >= 2:
-                log.error(
-                    "Parada precoce: 2 rate limits consecutivos. "
-                    "Próximas URLs vão dar 429 também."
-                )
-                stopped_early = True
-                break
-            log.warning("  (continuando, pode ser flutuação. Próximo erro 429 vai parar.)")
+            if rate_limit_streak == 1:
+                first_429_idx = i
+                failures.append(url)  # removido depois se entrar no pending
+                log.warning("  (continuando, pode ser flutuação. Próximo erro 429 vai parar.)")
+                continue
+            log.error(
+                "Parada precoce: 2 rate limits consecutivos. "
+                "Próximas URLs vão dar 429 também."
+            )
+            stopped_early = True
+            break
 
+    remaining: list[str] = []
     if stopped_early:
-        remaining = urls[last_processed:]
+        # Retoma a partir da PRIMEIRA URL do streak (as duas que deram 429 nunca
+        # viraram draft — descartá-las perderia vídeos silenciosamente).
+        remaining = urls[first_429_idx - 1:]
+        failures = [u for u in failures if u not in set(remaining)]
         pending_path = _pending_path_for(source)
         _save_pending(pending_path, remaining, "rate limit 429")
         log.error(
@@ -258,6 +295,16 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             len(remaining),
             pending_path,
             pending_path.name,
+        )
+
+    if failures and not args.dry_run:
+        failed_path = _failed_path_for(source)
+        _save_pending(failed_path, failures, "falhas individuais")
+        log.warning(
+            "%d URL(s) com falha salvas em %s. Reprocesse com: yt-nota --retry-pending %s",
+            len(failures),
+            failed_path,
+            failed_path.name,
         )
 
     if args.dry_run:
@@ -288,6 +335,20 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 # Modo finalize
 # ---------------------------------------------------------------------------
 
+# As 7 seções que a skill /yt-sintese produz. O finalize deleta o draft após
+# escrever a nota — validar o body ANTES protege contra perder o draft pra um
+# body truncado ou fora do formato.
+EXPECTED_BODY_SECTIONS = (
+    "## Em uma frase",
+    "## O que defende",
+    "## O que mais me marcou",
+    "## O que isso muda pra mim",
+    "## Dicionário",
+    "## Notas permanentes a criar",
+    "## Referência",
+)
+
+
 def _cmd_finalize(args: argparse.Namespace) -> int:
     draft = Path(args.finalize)
     if not draft.exists():
@@ -302,6 +363,16 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
     if not body.strip():
         log.error("Body de síntese vazio. Passe via --body-file ou stdin.")
         return 1
+
+    if not args.skip_body_check:
+        missing = [s for s in EXPECTED_BODY_SECTIONS if s not in body]
+        if missing:
+            log.error(
+                "Body de síntese incompleto — draft preservado. Seções ausentes: %s. "
+                "Corrija o body ou use --skip-body-check pra forçar.",
+                ", ".join(missing),
+            )
+            return 1
 
     result = finalize_draft(
         draft,
@@ -358,8 +429,8 @@ def main() -> None:
     parser.add_argument(
         "--dominio",
         help=(
-            "Domínio do vault (IA-Engenharia, Financas, Saude, Carreira, Impressao-3D, "
-            "Metodo, Mestrado). Override do lookup em config/channel_domains.yaml."
+            "Domínio do vault (ver config/domains.yaml). "
+            "Override do lookup em config/channel_domains.yaml."
         ),
     )
     parser.add_argument(
@@ -367,7 +438,7 @@ def main() -> None:
         type=int,
         default=0,
         metavar="N",
-        help="Segundos de espera entre vídeos (default 0; sugerido 15-30 pra batch >5)",
+        help="Segundos de espera entre vídeos (default 0; 60 validado como estável pra waves longas)",
     )
     parser.add_argument(
         "--with-cookies",
@@ -396,7 +467,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--whisper-model",
-        choices=sorted({"tiny", "base", "small", "medium", "large", "large-v2", "large-v3"}),
+        choices=sorted(SUPPORTED_MODELS),
         default=None,
         help="Modelo Whisper pro fallback. Default: 'small' (244 MB, ótimo PT-BR). Override com YT_NOTA_WHISPER_MODEL.",
     )
@@ -405,6 +476,11 @@ def main() -> None:
     parser.add_argument("--body-file", help="Arquivo com body sintetizado (modo finalize)")
     parser.add_argument("--no-channel-card", action="store_true", help="Pula channel card (modo finalize)")
     parser.add_argument("--keep-draft", action="store_true", help="Não deleta o draft (modo finalize)")
+    parser.add_argument(
+        "--skip-body-check",
+        action="store_true",
+        help="Pula validação das 7 seções do body antes de deletar o draft (modo finalize)",
+    )
 
     parser.add_argument("--list", action="store_true", help="Lista drafts pendentes")
 
@@ -413,7 +489,6 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve Whisper opts em cascata: CLI flag > env var > default
-    from .whisper_fallback import resolve_enabled_from_env, resolve_model_from_env
     args.whisper_fallback_enabled = resolve_enabled_from_env(args.whisper_fallback)
     args.whisper_model_resolved = resolve_model_from_env(args.whisper_model)
 

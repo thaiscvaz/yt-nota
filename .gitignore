@@ -24,3 +24,18 @@ scripts/chain-*.sh
 # Mapping de canal pra domínio é configuração pessoal do usuário.
 # Versionar só o .example.yaml (sem dados sensíveis).
 config/channel_domains.yaml
+config/channel_aliases.yaml
+
+# Taxonomia de domínios do vault é pessoal — revela os interesses do usuário.
+# Versionar só o domains.example.yaml (genérico).
+config/domains.yaml
+
+# Artefatos pessoais de execução (queues por canal, dumps de erro, scripts
+# ad-hoc de negócio/canal). Nunca versionar — revelam curadoria/dados pessoais.
+*.failed.txt
+*.pending.txt
+*_queue.txt
+*_download.log
+enum_err.txt
+/run_*.ps1
+scripts/run-*.sh

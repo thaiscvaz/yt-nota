@@ -13,7 +13,8 @@ from typing import Optional
 
 import yaml
 
-from .config import DOMAINS_CONFIG_PATH, VALID_DOMINIOS
+from . import config
+from .config import DOMAINS_CONFIG_PATH
 
 
 class DomainResolutionError(Exception):
@@ -37,10 +38,11 @@ def _load_mapping() -> dict[str, str]:
 
 
 def validate(dominio: str) -> str:
-    if dominio not in VALID_DOMINIOS:
+    valid = config.get_valid_dominios()
+    if dominio not in valid:
         raise DomainResolutionError(
             f"Domínio inválido: '{dominio}'. "
-            f"Válidos: {sorted(VALID_DOMINIOS)}"
+            f"Válidos: {sorted(valid)}"
         )
     return dominio
 
@@ -65,7 +67,7 @@ def resolve(canal_slug: str, override: Optional[str] = None) -> str:
         f"{DOMAINS_CONFIG_PATH.name}. Solução:\n"
         f"  1. Adicionar '{canal_slug}: <dominio>' em config/channel_domains.yaml, ou\n"
         f"  2. Rodar novamente com --dominio <DOMINIO>\n"
-        f"Domínios válidos: {sorted(VALID_DOMINIOS)}"
+        f"Domínios válidos: {sorted(config.get_valid_dominios())}"
     )
 
 

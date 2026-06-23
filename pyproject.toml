@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yt-nota"
-version = "0.4.0"
+version = "0.5.0"
 description = "CLI que extrai transcripts do YouTube e prepara drafts pra síntese no Claude Code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,7 @@ authors = [{name = "User Vaz", email = "user-email@gmail.com"}]
 license = {text = "MIT"}
 dependencies = [
     "yt-dlp>=2025.0.0",
+    "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "PyYAML>=6.0",
 ]

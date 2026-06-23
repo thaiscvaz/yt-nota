@@ -1,0 +1,16 @@
+# Valid vault domains.
+#
+# Copy this file to `domains.yaml` (not versioned) and edit with the domains
+# that match your own vault's top-level taxonomy. These strings are validated
+# at resolve time and used as the folder under which notes are written
+# (`<vault>/30-Recursos/Literatura/<domain>/<Channel>/`).
+#
+# Resolution: see src/yt_nota/config.py:get_valid_dominios() — loads domains.yaml
+# if present, otherwise falls back to this example file.
+- Technology
+- Finance
+- Health
+- Career
+- Hobby
+- Productivity
+- Research

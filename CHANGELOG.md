@@ -2,17 +2,48 @@
 
 Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [Unreleased]
+
+### Mudado
+- **Taxonomia de domínios agora é configurável** (era hardcoded no source). `config.py` deixou de declarar `VALID_DOMINIOS` como frozenset fixo; passou a carregar `config/domains.yaml` (pessoal, não versionado) com fallback pra `config/domains.example.yaml` (genérico, versionado), via `get_valid_dominios()` + `reload_dominios()` — mesma cascata do `channel_domains.yaml`. `domain.py` e `vault.py` chamam a função em runtime. Objetivo: o repo deixa de carregar a taxonomia pessoal do usuário e vira ferramenta genérica/forkável (padrão FrankMD). Migração: copie `domains.example.yaml` pra `domains.yaml` e edite com seus domínios.
+
+### Adicionado
+- `config/domains.example.yaml` (template genérico) + `get_valid_dominios()`/`reload_dominios()` em `config.py`.
+- `tests/conftest.py` (fixture autouse desacopla a suíte da taxonomia pessoal) + `tests/test_config_dominios.py` (cobre a cascata personal → example).
+
+## [0.5.0] - 2026-06-09
+
+### Corrigido
+- **Bug do Whisper "traduzindo" áudio EN pra PT (W33 vid 2).** Causa raiz: não era auto-detect — `PREFERRED_LANGS` escolhia a auto-caption pt-BR (tradução de máquina do YouTube) pra vídeos EN, e no 429 o idioma dessa legenda virava hint do Whisper, forçando `language=pt` em áudio EN (= tradução). Agora o hint vem do idioma ORIGINAL do áudio (`info["language"]` do yt-dlp, novo campo `language` em `normalize_video_info`); auto-captions traduzidas nunca viram hint (`_whisper_lang_hint`). Sem candidato confiável, deixa o Whisper auto-detectar.
+- **429 com Whisper indisponível voltou a parar a wave.** Desde a v0.3.0, sem `faster-whisper` instalado o 429 degradava silenciosamente: drafts SEM transcript pra wave inteira, queimando a queue. Agora, se o fallback é acionado e falha (não instalado, áudio falhou), o `RateLimitError` propaga — parada precoce + pending.txt como prometido na v0.3.0.
+- **Off-by-one no pending.txt:** a PRIMEIRA URL do streak de 429 era descartada do arquivo de retomada (perdida pra sempre — nunca virou draft e a dedup não acusava). O pending agora começa na primeira URL do streak.
+- **`httpx` declarado em `dependencies`** (era usado em `extractor.py` mas não declarado — instalação limpa quebrava com ImportError).
+
+### Adicionado
+- **Dedup ANTES da rede**: `video_id` é parseado direto da URL (`video_id_from_url`) e buscado em todo o vault (`vault.find_video_anywhere`) antes do `extract_info`. Re-rodar uma queue já processada vira no-op instantâneo: zero chamadas de rede, zero sleep, zero exposição a rate limit.
+- **Índice de dedup em memória** (`vault._dedup_index`): cada diretório do vault é varrido UMA vez por execução, em vez de reler todos os arquivos do canal a cada vídeo do batch. `write_draft` registra o draft novo no índice (mesma URL 2x na mesma queue continua dedupando); `finalize_draft` invalida o índice.
+- **Sleep inteligente**: `--sleep` só dorme antes de vídeos que realmente vão à rede. Vídeos pulados por dedup não custam mais N segundos cada.
+- **`<queue>.failed.txt`**: URLs com falha individual (erro de extração, 429 isolado absorvido pelo streak-reset) eram perdidas em silêncio — só o exit code 1 sinalizava. Agora são salvas num arquivo retomável com `--retry-pending`.
+- **Guard do finalize**: valida que o body contém as 7 seções da skill `/yt-sintese` ANTES de deletar o draft (proteção contra body truncado/fora de formato). Bypass com `--skip-body-check`. Automatiza a validação manual que segurou a sessão de 01/06 em 0 erros.
+- **Preferência por track original nas auto-captions**: pra vídeo cujo idioma original é conhecido, a track `-orig` (ou código do idioma do áudio) vence traduções de máquina em `PREFERRED_LANGS`. Legendas manuais continuam vencendo tudo.
+- Testes: 24 novos (134 total) — `test_extractor.py` novo (video_id_from_url, _pick_subtitle, _whisper_lang_hint, re-raise no 429), loop do `_cmd_extract` (off-by-one, failed.txt, dedup pré-rede, --force), guard do finalize, índice de dedup.
+
+### Compatibilidade
+- `_try_whisper_fallback` mudou kwarg `preferred_lang` → `lang_hint` (interno, sem impacto externo).
+- Vídeos EN que antes geravam transcript via auto-caption pt-BR traduzida agora geram transcript EN original (a síntese pra PT-BR acontece na skill, como sempre). Comportamento pra vídeos PT inalterado.
+- `--whisper-model` agora deriva as choices de `SUPPORTED_MODELS` (mesma lista, fonte única).
+
 ## [0.4.0] - 2026-06-04
 
 ### Mudado
 - **Drafts migram pra `Pipeline/_processar/`** (Fase A+B do refatoramento do vault Obsidian). Path antigo `30-Recursos/Literatura/_drafts/` movido pra `30-Recursos/Literatura/Pipeline/_processar/`. Constante `DRAFTS_DIR` renomeada pra `PROCESSAR_DIR` em `config.py`; propagado em `vault.py`, `cli.py` e fixtures de teste.
-- Notas finais agora seguem 7 domínios hierárquicos: `30-Recursos/Literatura/<dominio>/<canal>/` (ex: `IA-Engenharia/Akita/`, `Financas/REDACTED-CHANNEL/`). Mapping canal → domínio em `config/channel_domains.yaml`.
+- Notas finais agora seguem domínios hierárquicos: `30-Recursos/Literatura/<dominio>/<canal>/` (ex: `<Dominio>/<Canal>/`). Mapping canal → domínio em `config/channel_domains.yaml`.
 - **Channel cards migram pra `30-Recursos/Notas/Cards-de-Pessoa/<canal>.md`** (era `Notas/<canal>.md` flat). Nova constante `CARDS_DE_PESSOA_DIR` em `config.py`.
 - Fixtures de teste (`test_vault.py`, `test_whisper_fallback.py`) atualizadas pra usar `PROCESSAR_DIR` e novo path.
 - README, `docs/plan.md`, `skills/yt-sintese/SKILL.md`, `CLAUDE.md` atualizados.
 
 ### Adicionado
-- **`src/yt_nota/domain.py`**: módulo novo de resolução de domínio em cascata: flag `--dominio` (override CLI) → frontmatter `dominio:` do draft → lookup em `config/channel_domains.yaml` → `DomainResolutionError` com instrução clara se nada bater. `validate()` rejeita domínios fora dos 7 da REGRAS-VAULT.
+- **`src/yt_nota/domain.py`**: módulo novo de resolução de domínio em cascata: flag `--dominio` (override CLI) → frontmatter `dominio:` do draft → lookup em `config/channel_domains.yaml` → `DomainResolutionError` com instrução clara se nada bater. `validate()` rejeita domínios fora da taxonomia configurada.
 - **Constantes em `config.py`**: `VALID_DOMINIOS` (frozenset com os 7 válidos), `DOMAINS_CONFIG_PATH`, `CARDS_DE_PESSOA_DIR`.
 - **Kwarg `dominio` em `write_draft`** e **`dominio_override` em `finalize_draft`**: permitem skill `/yt-sintese` ou CLI passar override explícito. Frontmatter do draft ganha campo `dominio:` opcional.
 - **`is_video_already_processed` agora varre TODOS os subdomínios** de `Literatura/` pra dedup (cobre notas legadas em path flat anteriores à migração).
@@ -23,7 +54,7 @@ Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](http
 - Channel cards legados em `Notas/<canal>.md` ficam órfãos. Primeira execução pós-upgrade cria card novo em `Notas/Cards-de-Pessoa/<canal>.md`.
 
 ### Why
-Refatoramento do vault Obsidian (2026-06-04) hierarquizou `30-Recursos/Literatura/` em 7 domínios (Mestrado, Saude, Financas, IA-Engenharia, Carreira, Impressao-3D, Metodo) + sub-pasta `Pipeline/` pros drafts em transito. Documentação canônica em `30-Recursos/Sistema/REGRAS-VAULT.md` e `MIGRACAO-PROJETOS.md`. Pasta `_drafts/` flat foi substituída por `Pipeline/_processar/` (rename de constante alinhado com nome da pasta). Cards-de-Pessoa subdomínio criado na Fase B pra reduzir entropia de `Notas/`.
+Refatoramento do vault Obsidian (2026-06-04) hierarquizou `30-Recursos/Literatura/` em domínios temáticos + sub-pasta `Pipeline/` pros drafts em transito. Documentação canônica em `30-Recursos/Sistema/REGRAS-VAULT.md` e `MIGRACAO-PROJETOS.md`. Pasta `_drafts/` flat foi substituída por `Pipeline/_processar/` (rename de constante alinhado com nome da pasta). Cards-de-Pessoa subdomínio criado na Fase B pra reduzir entropia de `Notas/`.
 
 ## [0.3.0] - 2026-05-31
 

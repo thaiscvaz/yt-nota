@@ -1,8 +1,9 @@
+import yt_nota.slug as slug_module
 from yt_nota.slug import channel_slug, title_slug
 
 
 def test_channel_slug_basic():
-    assert channel_slug("Fabio Akita") == "Fabio-Akita"
+    assert channel_slug("Tech Reviewer") == "Tech-Reviewer"
 
 
 def test_channel_slug_with_accents():
@@ -12,7 +13,7 @@ def test_channel_slug_with_accents():
 
 def test_channel_slug_special_chars():
     assert channel_slug("@1MinuteAI") == "1MinuteAI"
-    assert channel_slug("AkitaOnRails - YouTube") == "AkitaOnRails-YouTube"
+    assert channel_slug("SampleChannel - YouTube") == "SampleChannel-YouTube"
 
 
 def test_channel_slug_empty():
@@ -43,3 +44,26 @@ def test_title_slug_empty():
 
 def test_title_slug_only_special():
     assert title_slug("!!!???") == "sem-titulo"
+
+
+def test_channel_slug_applies_alias(monkeypatch):
+    monkeypatch.setattr(
+        slug_module, "_load_aliases", lambda: {"Maker-Lab-Robotica-3D": "Maker-Lab"}
+    )
+    assert channel_slug("Maker Lab Robótica 3D") == "Maker-Lab"
+
+
+def test_channel_slug_without_alias_keeps_derivation(monkeypatch):
+    monkeypatch.setattr(slug_module, "_load_aliases", lambda: {})
+    assert channel_slug("Maker Lab Robótica 3D") == "Maker-Lab-Robotica-3D"
+
+
+def test_load_aliases_missing_files_returns_empty(monkeypatch, tmp_path):
+    slug_module._load_aliases.cache_clear()
+    monkeypatch.setattr(
+        slug_module, "ALIASES_CONFIG_PATH", tmp_path / "channel_aliases.yaml"
+    )
+    try:
+        assert slug_module._load_aliases() == {}
+    finally:
+        slug_module._load_aliases.cache_clear()

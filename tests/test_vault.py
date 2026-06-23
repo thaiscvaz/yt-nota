@@ -24,23 +24,23 @@ from yt_nota.transcript import Segment
 @pytest.fixture
 def fake_vault(tmp_path, monkeypatch):
     """Aponta vault.py pra um vault temporário pra cada teste."""
-    literatura = tmp_path / "30-Recursos" / "Literatura"
-    cards = tmp_path / "30-Recursos" / "Notas" / "Cards-de-Pessoa"
-    drafts = literatura / "Pipeline" / "_processar"
-    literatura.mkdir(parents=True)
+    recursos = tmp_path / "30-Recursos"
+    cards = recursos / "Pessoas"
+    drafts = recursos / "Pipeline" / "_processar"
     cards.mkdir(parents=True)
     drafts.mkdir(parents=True)
 
     monkeypatch.setattr(vault, "VAULT_PATH", tmp_path)
-    monkeypatch.setattr(vault, "LITERATURA_DIR", literatura)
+    monkeypatch.setattr(vault, "RECURSOS_DIR", recursos)
     monkeypatch.setattr(vault, "CARDS_DE_PESSOA_DIR", cards)
     monkeypatch.setattr(vault, "PROCESSAR_DIR", drafts)
+    vault.reset_dedup_index()
 
-    # Mock do mapping de domínio: Canal-Teste vai pra IA-Engenharia
-    # (sem isso, resolve() lê config/channel_domains.yaml real e falha)
+    # Mock do mapping de domínio: Canal-Teste vai pra Tech (domínio neutro do
+    # conftest; sem isso, resolve() lê config/channel_domains.yaml real e falha).
     # NOTA: substituir _load_mapping bypassa o lru_cache, então não precisa reload.
     from yt_nota import domain
-    monkeypatch.setattr(domain, "_load_mapping", lambda: {"Canal-Teste": "IA-Engenharia"})
+    monkeypatch.setattr(domain, "_load_mapping", lambda: {"Canal-Teste": "Tech"})
     return tmp_path
 
 
@@ -371,33 +371,33 @@ def test_dedup_detects_existing_draft(fake_vault):
 # ---------------------------------------------------------------------------
 
 def test_finalize_writes_note_in_dominio_subfolder(fake_vault):
-    """Nota final cai em Literatura/<Dominio>/<Canal>/, não em Literatura/<Canal>/."""
+    """Nota final cai em 30-Recursos/<Dominio>/<Canal>/, não em 30-Recursos/<Canal>/."""
     path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
     result = vault.finalize_draft(path, "body")
 
     note = result["note_path"]
     assert note.parent.name == "Canal-Teste"
-    assert note.parent.parent.name == "IA-Engenharia"
-    assert note.parent.parent.parent.name == "Literatura"
+    assert note.parent.parent.name == "Tech"
+    assert note.parent.parent.parent.name == "30-Recursos"
 
 
 def test_finalize_writes_channel_card_in_cards_de_pessoa(fake_vault):
-    """Channel card cai em Notas/Cards-de-Pessoa/, não em Notas/."""
+    """Channel card cai em 30-Recursos/Pessoas/."""
     path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
     result = vault.finalize_draft(path, "body")
 
     card = result["channel_card_path"]
     assert card is not None
-    assert card.parent.name == "Cards-de-Pessoa"
-    assert card.parent.parent.name == "Notas"
+    assert card.parent.name == "Pessoas"
+    assert card.parent.parent.name == "30-Recursos"
 
 
 def test_finalize_dominio_override_wins_over_yaml(fake_vault):
     """--dominio override força destino diferente do mapping YAML."""
     path = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
-    result = vault.finalize_draft(path, "body", dominio_override="Carreira")
+    result = vault.finalize_draft(path, "body", dominio_override="Career")
 
-    assert result["note_path"].parent.parent.name == "Carreira"
+    assert result["note_path"].parent.parent.name == "Career"
 
 
 def test_write_draft_persists_dominio_in_frontmatter(fake_vault):
@@ -406,9 +406,9 @@ def test_write_draft_persists_dominio_in_frontmatter(fake_vault):
         _sample_video(),
         _sample_segments(),
         _sample_transcript_info(),
-        dominio="IA-Engenharia",
+        dominio="Tech",
     )
-    assert "dominio: IA-Engenharia" in path.read_text(encoding="utf-8")
+    assert "dominio: Tech" in path.read_text(encoding="utf-8")
 
 
 def test_finalize_aborts_on_unknown_channel_without_override(fake_vault, monkeypatch):
@@ -431,3 +431,56 @@ def test_dedup_different_video_id_returns_false(fake_vault):
 def test_dedup_empty_video_id_returns_false(fake_vault):
     already, evidence = vault.is_video_already_processed("", "Canal-Teste")
     assert already is False
+
+
+# ---------------------------------------------------------------------------
+# Dedup index (v0.5.0): 1 scan por diretório por run + find_video_anywhere
+# ---------------------------------------------------------------------------
+
+def test_dedup_index_sees_draft_written_after_index_built(fake_vault):
+    """Mesma URL duas vezes na mesma queue: o 2º check vê o draft do 1º.
+
+    O índice é construído no 1º check (vault vazio); write_draft precisa
+    registrar o draft novo no índice ou a dedup intra-run quebra.
+    """
+    already, _ = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is False  # índice construído com vault vazio
+
+    vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+
+    already, evidence = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is True
+    assert evidence is not None and evidence.name.endswith(".draft.md")
+
+
+def test_dedup_index_invalidated_by_finalize(fake_vault):
+    """finalize move draft → nota; o índice stale não pode dar evidência morta."""
+    draft = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    already, _ = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is True  # índice construído apontando pro draft
+
+    vault.finalize_draft(draft, "body")
+
+    already, evidence = vault.is_video_already_processed("abc123", "Canal-Teste")
+    assert already is True
+    assert evidence is not None and evidence.exists()
+
+
+def test_find_video_anywhere_locates_draft(fake_vault):
+    vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    hit = vault.find_video_anywhere("abc123")
+    assert hit is not None and hit.name.endswith(".draft.md")
+
+
+def test_find_video_anywhere_locates_final_note_without_knowing_channel(fake_vault):
+    draft = vault.write_draft(_sample_video(), _sample_segments(), _sample_transcript_info())
+    vault.finalize_draft(draft, "body")
+
+    hit = vault.find_video_anywhere("abc123")
+    assert hit is not None
+    assert hit.parent.parent.name == "Tech"
+
+
+def test_find_video_anywhere_unknown_returns_none(fake_vault):
+    assert vault.find_video_anywhere("zzzzzzzzzzz") is None
+    assert vault.find_video_anywhere("") is None
