@@ -109,7 +109,7 @@ def test_mark_descarte_grava_a_razao(tmp_path):
         _args(
             db,
             registry="mark",
-            channel="Clube-do-Valor",
+            channel="Canal-Exemplo",
             status=STATUS_CURADO,
             verdict=VERDICT_DESCARTE,
             reason="abaixo de min_minutes",
