@@ -128,6 +128,26 @@ yt-nota --registry backfill --dry-run
 yt-nota --registry backfill
 ```
 
+### Os verbos que a automação usa
+
+`filter` e `mark` existem pro pipeline semanal (`/curadoria-incremental`), que precisa diffar o RSS contra o registro e depois gravar o que decidiu:
+
+```bash
+# Diff: imprime só os ids que o registro nunca viu
+yt-nota --registry filter --ids abc123 def456
+yt-nota --registry filter --from-file temp/Anthropic.feed.txt
+
+# Grava a transição de status
+yt-nota --registry mark --channel Anthropic --from-file temp/Anthropic.feed.txt
+yt-nota --registry mark --channel Anthropic --status baixado --ids abc123
+yt-nota --registry mark --channel Anthropic --status curado \
+        --verdict DESCARTE --reason "abaixo de min_minutes (20min, tem 4min)" --ids abc123
+```
+
+`filter` é consulta pura — não cria linha como efeito colateral, senão o próprio diff envenenaria o estado que ele está consultando. O arquivo de `--from-file` aceita `videoId` ou `videoId<TAB>título`; o título vem de graça no RSS e é gravado junto.
+
+`mark` recusa `--status curado` sem `--verdict` e `--status erro` sem `--reason`. **Um descarte deliberado é uma decisão de curadoria, não a ausência de uma** — um short, um vídeo fora do filtro do canal, um abaixo da duração mínima: cada um é `curado` + `DESCARTE` + a razão. Gravar isso como um status genérico apagaria justamente a distinção que o registro existe pra sustentar, e a semana seguinte não saberia diferenciar "avaliei e descartei" de "nunca vi".
+
 O backfill importa tudo com status `historico`, **não** `curado`: o JSON legado misturava baixado, fichado e pulado de propósito no mesmo array, então afirmar que foram curados seria inventar procedência. `historico` diz só o que o dado sustenta — "o pipeline antigo já viu esse id" — e isso basta pra dedup.
 
 Redescobrir um vídeo é sempre seguro: `mark_discovered` usa `INSERT OR IGNORE`, então o RSS trazendo de volta um vídeo já curado não rebaixa o status dele.

@@ -182,6 +182,43 @@ class Registry:
         self._conn.commit()
         return cur.rowcount > 0
 
+    def enrich(
+        self,
+        video_id: str,
+        *,
+        channel_id: str | None = None,
+        title: str | None = None,
+        published_at: str | None = None,
+        duration_s: int | None = None,
+    ) -> None:
+        """Preenche metadado que falta, sem sobrescrever o que já existe.
+
+        `mark_discovered` usa INSERT OR IGNORE, então metadado que chega depois da
+        primeira vez (título vindo do RSS pra uma linha importada pelo backfill, que
+        só tinha o id) nunca entraria. Isso resolve. COALESCE garante a assimetria:
+        preenche buraco, nunca reescreve dado bom com um None.
+        """
+        sets = {
+            k: v
+            for k, v in (
+                ("channel_id", channel_id),
+                ("title", title),
+                ("published_at", published_at),
+                ("duration_s", duration_s),
+            )
+            if v is not None
+        }
+        if not sets:
+            return
+        assigns = ", ".join(f"{k} = COALESCE({k}, ?)" for k in sets)
+        cur = self._conn.execute(
+            f"UPDATE videos SET {assigns}, updated_at = ? WHERE video_id = ?",
+            (*sets.values(), _now(), video_id),
+        )
+        if cur.rowcount == 0:
+            raise KeyError(f"video_id não registrado: {video_id}")
+        self._conn.commit()
+
     def mark_downloaded(self, video_id: str, *, transcript_source: str | None = None) -> None:
         self._update(video_id, status=STATUS_BAIXADO, transcript_source=transcript_source)
 
