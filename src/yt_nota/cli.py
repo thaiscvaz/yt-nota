@@ -40,6 +40,10 @@ from .extractor import (
 )
 from .registry import (
     DEFAULT_DB_PATH,
+    STATUS_BAIXADO,
+    STATUS_CURADO,
+    STATUS_DESCOBERTO,
+    STATUS_ERRO,
     backfill_from_processados,
     open_registry,
 )
@@ -437,6 +441,27 @@ def _print_counts(title: str, counts: dict[str, int]) -> None:
         sys.stdout.write(f"  {key:<{width}}  {n:>6}\n")
 
 
+def _registry_items(args: argparse.Namespace) -> list[tuple[str, str | None]]:
+    """Resolve --ids / --from-file numa lista de (video_id, título|None).
+
+    `--from-file` aceita `videoId` ou `videoId<TAB>título` por linha: o RSS já traz o
+    título, e jogá-lo fora obrigaria a rebuscar depois. Linhas vazias e `#` são ignoradas.
+    """
+    items: list[tuple[str, str | None]] = []
+    if args.ids:
+        for chunk in args.ids:
+            for raw in chunk.replace(",", " ").split():
+                items.append((raw, None))
+    if args.from_file:
+        for line in Path(args.from_file).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            vid, _, title = line.partition("\t")
+            items.append((vid.strip(), title.strip() or None))
+    return items
+
+
 def _cmd_registry(args: argparse.Namespace) -> int:
     action = args.registry
     db_path = Path(args.db) if args.db else DEFAULT_DB_PATH
@@ -469,6 +494,57 @@ def _cmd_registry(args: argparse.Namespace) -> int:
                     f"{v.channel_name} · {v.title or ''}{reason}\n"
                 )
             log.info("\n%d vídeo(s).", len(videos))
+            return 0
+
+        if action == "filter":
+            items = _registry_items(args)
+            if not items:
+                log.error("Nada a filtrar: informe --ids ou --from-file.")
+                return 1
+            novos = reg.filter_new([vid for vid, _ in items])
+            for vid in novos:
+                sys.stdout.write(f"{vid}\n")
+            log.info("%d de %d são novos.", len(novos), len(items))
+            return 0
+
+        if action == "mark":
+            items = _registry_items(args)
+            if not items:
+                log.error("Nada a marcar: informe --ids ou --from-file.")
+                return 1
+            if not args.channel:
+                log.error("--channel é obrigatório em --registry mark.")
+                return 1
+            alvo = args.status or STATUS_DESCOBERTO
+            if alvo == STATUS_CURADO and not args.verdict:
+                log.error(
+                    "--status curado exige --verdict. Curar sem veredicto é exatamente o "
+                    "buraco do processados.json que o registro existe pra fechar."
+                )
+                return 1
+            if alvo == STATUS_ERRO and not args.reason:
+                log.error("--status erro exige --reason (o motivo é o dado útil).")
+                return 1
+
+            for vid, title in items:
+                reg.mark_discovered(vid, args.channel, title=title)
+                if title:
+                    reg.enrich(vid, title=title)
+                if alvo == STATUS_BAIXADO:
+                    reg.mark_downloaded(vid)
+                elif alvo == STATUS_CURADO:
+                    reg.mark_curated(vid, args.verdict, reason=args.reason)
+                elif alvo == STATUS_ERRO:
+                    reg.mark_error(vid, args.reason)
+
+            detalhe = f" [{args.verdict}]" if args.verdict else ""
+            log.info(
+                "%d vídeo(s) de %s marcados como `%s`%s.",
+                len(items),
+                args.channel,
+                alvo,
+                detalhe,
+            )
             return 0
 
         if action == "backfill":
@@ -593,26 +669,41 @@ def main() -> None:
     reg_group = parser.add_argument_group("registro durável")
     reg_group.add_argument(
         "--registry",
-        choices=("stats", "list", "backfill"),
-        help="Consulta/administra o registro do que já passou pelo pipeline",
+        choices=("stats", "list", "filter", "mark", "backfill"),
+        help=(
+            "Consulta/administra o registro do que já passou pelo pipeline. "
+            "filter = imprime só os ids desconhecidos; mark = grava transição de status"
+        ),
     )
     reg_group.add_argument("--db", help=f"Path do registro (default: {DEFAULT_DB_PATH})")
-    reg_group.add_argument("--channel", help="Filtra por canal (--registry list)")
+    reg_group.add_argument("--channel", help="Canal (filtro em `list`, obrigatório em `mark`)")
     reg_group.add_argument(
         "--status",
         choices=("descoberto", "baixado", "curado", "erro", "historico"),
-        help="Filtra por status (--registry list)",
+        help="Filtro em `list`; status-alvo em `mark` (default: descoberto)",
     )
     reg_group.add_argument(
         "--verdict",
         choices=("DESCARTE", "PROPAGA", "ATOMICA", "FICHAMENTO"),
-        help="Filtra por veredicto do portão de curadoria (--registry list)",
+        help="Veredicto do portão de curadoria. Filtro em `list`; obrigatório em `mark --status curado`",
+    )
+    reg_group.add_argument(
+        "--reason",
+        help="Razão do veredicto (`mark --status curado`) ou do erro (`mark --status erro`)",
+    )
+    reg_group.add_argument(
+        "--ids",
+        nargs="+",
+        help="video_ids separados por espaço ou vírgula (`filter`/`mark`)",
     )
     reg_group.add_argument("--limit", type=int, help="Teto de linhas (--registry list)")
     reg_group.add_argument(
         "--from-file",
         dest="from_file",
-        help="Origem do backfill (default: processados.json no vault)",
+        help=(
+            "Arquivo de entrada. Em `backfill`: JSON legado (default: processados.json "
+            "no vault). Em `filter`/`mark`: um `videoId` ou `videoId<TAB>título` por linha"
+        ),
     )
 
     parser.add_argument("-v", "--verbose", action="store_true")

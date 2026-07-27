@@ -242,6 +242,48 @@ def test_vault_paths_serializa_acentos(reg: Registry):
     assert reg.get("a").vault_paths == ("Método/Atenção.md",)
 
 
+# -- enrich ------------------------------------------------------------------
+
+
+def test_enrich_preenche_metadado_que_faltava(reg: Registry):
+    """Linha veio do backfill só com o id; o RSS traz o título depois."""
+    reg.mark_discovered("a", "Anthropic")
+    reg.enrich("a", title="Keynote 2026", published_at="2026-07-01", duration_s=3600)
+    rec = reg.get("a")
+    assert rec.title == "Keynote 2026"
+    assert rec.published_at == "2026-07-01"
+    assert rec.duration_s == 3600
+
+
+def test_enrich_nao_sobrescreve_dado_existente(reg: Registry):
+    reg.mark_discovered("a", "Anthropic", title="Título bom", duration_s=900)
+    reg.enrich("a", title="Título pior", duration_s=1)
+    rec = reg.get("a")
+    assert rec.title == "Título bom"
+    assert rec.duration_s == 900
+
+
+def test_enrich_sem_campos_e_noop(reg: Registry):
+    reg.mark_discovered("a", "Anthropic", title="T")
+    reg.enrich("a")
+    assert reg.get("a").title == "T"
+
+
+def test_enrich_em_video_desconhecido_falha(reg: Registry):
+    with pytest.raises(KeyError):
+        reg.enrich("nunca-visto", title="T")
+
+
+def test_enrich_nao_muda_status(reg: Registry):
+    reg.mark_discovered("a", "C")
+    reg.mark_curated("a", VERDICT_FICHAMENTO, reason="densa")
+    reg.enrich("a", title="T")
+    rec = reg.get("a")
+    assert rec.status == STATUS_CURADO
+    assert rec.verdict == VERDICT_FICHAMENTO
+    assert rec.title == "T"
+
+
 def test_backfill_de_arquivo_real_do_vault(reg: Registry, tmp_path):
     """Formato exato do processados.json em produção."""
     payload = {
