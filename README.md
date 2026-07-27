@@ -108,6 +108,30 @@ Por vídeo processado:
 
 A nota síntese tem: `em uma frase`, `o que defende`, `o que mais me marcou` (com timestamp), `o que isso muda pra mim`, `dicionário` (4-7 termos), `notas permanentes a criar`, `referência`.
 
+## Registro durável (`--registry`)
+
+O que já passou pelo pipeline mora num SQLite em `data/registry.db` (não versionado — veja o `.gitignore`). Ele responde três perguntas que o antigo `processados.json` não respondia: *esse vídeo já foi visto?*, *em que estágio ele parou?* e *qual foi o veredicto da curadoria?*
+
+Cada vídeo tem ciclo de vida explícito — `descoberto` → `baixado` → `curado` ou `erro` — e, quando curado, carrega o veredicto do portão (`DESCARTE`, `PROPAGA`, `ATOMICA`, `FICHAMENTO`), a razão e os paths tocados no vault.
+
+```bash
+# Panorama: total, por status, por veredicto, por canal
+yt-nota --registry stats
+
+# Consulta filtrada
+yt-nota --registry list --channel Anthropic --limit 20
+yt-nota --registry list --verdict DESCARTE
+yt-nota --registry list --status erro
+
+# Importa o processados.json legado (--dry-run pra conferir antes)
+yt-nota --registry backfill --dry-run
+yt-nota --registry backfill
+```
+
+O backfill importa tudo com status `historico`, **não** `curado`: o JSON legado misturava baixado, fichado e pulado de propósito no mesmo array, então afirmar que foram curados seria inventar procedência. `historico` diz só o que o dado sustenta — "o pipeline antigo já viu esse id" — e isso basta pra dedup.
+
+Redescobrir um vídeo é sempre seguro: `mark_discovered` usa `INSERT OR IGNORE`, então o RSS trazendo de volta um vídeo já curado não rebaixa o status dele.
+
 ## Vídeos sem transcript
 
 Música, alguns shorts e lives sem captions cobrem essa categoria. O draft é criado mesmo assim, com `transcript: indisponivel`. A síntese usa só metadata + descrição.

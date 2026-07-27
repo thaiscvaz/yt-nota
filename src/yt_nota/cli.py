@@ -11,11 +11,15 @@ Três modos, determinados por flags:
   Chamado pela skill.
 
 - `yt-nota --list` lista drafts pendentes.
+
+- `yt-nota --registry <acao>` consulta/administra o registro durável do que já passou
+  pelo pipeline (stats | list | backfill).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -33,6 +37,11 @@ from .extractor import (
     normalize_video_info,
     playlist_video_urls,
     video_id_from_url,
+)
+from .registry import (
+    DEFAULT_DB_PATH,
+    backfill_from_processados,
+    open_registry,
 )
 from .slug import channel_slug
 from .vault import (
@@ -409,6 +418,103 @@ def _cmd_list(_args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Modo registry
+# ---------------------------------------------------------------------------
+
+# Onde o processados.json legado mora no vault. Só é lido no backfill.
+LEGACY_PROCESSADOS = (
+    VAULT_PATH / "Claude" / "automacoes" / "curadoria-incremental" / "data" / "processados.json"
+)
+
+
+def _print_counts(title: str, counts: dict[str, int]) -> None:
+    sys.stdout.write(f"\n{title}\n")
+    if not counts:
+        sys.stdout.write("  (vazio)\n")
+        return
+    width = max(len(k) for k in counts)
+    for key, n in counts.items():
+        sys.stdout.write(f"  {key:<{width}}  {n:>6}\n")
+
+
+def _cmd_registry(args: argparse.Namespace) -> int:
+    action = args.registry
+    db_path = Path(args.db) if args.db else DEFAULT_DB_PATH
+
+    with open_registry(db_path) as reg:
+        if action == "stats":
+            sys.stdout.write(f"Registro: {db_path}\n")
+            sys.stdout.write(f"Total de vídeos: {reg.total()}\n")
+            _print_counts("Por status:", reg.counts_by_status())
+            _print_counts("Por veredicto:", reg.counts_by_verdict())
+            _print_counts("Por canal:", reg.counts_by_channel())
+            return 0
+
+        if action == "list":
+            videos = reg.list_videos(
+                channel_name=args.channel,
+                status=args.status,
+                verdict=args.verdict,
+                limit=args.limit,
+            )
+            if not videos:
+                log.info("Nenhum vídeo bate com o filtro.")
+                return 0
+            for v in videos:
+                published = v.published_at or "sem data"
+                extra = f" [{v.verdict}]" if v.verdict else ""
+                reason = f" — {v.verdict_reason}" if v.verdict_reason else ""
+                sys.stdout.write(
+                    f"{v.video_id}  {published:<12} {v.status:<11}{extra} "
+                    f"{v.channel_name} · {v.title or ''}{reason}\n"
+                )
+            log.info("\n%d vídeo(s).", len(videos))
+            return 0
+
+        if action == "backfill":
+            source = Path(args.from_file) if args.from_file else LEGACY_PROCESSADOS
+            if not source.exists():
+                log.error("Arquivo de origem não encontrado: %s", source)
+                return 1
+            data = json.loads(source.read_text(encoding="utf-8"))
+            if args.dry_run:
+                total = sum(
+                    len(v)
+                    for k, v in data.items()
+                    if not k.startswith("_") and isinstance(v, list)
+                )
+                novos = len(reg.filter_new(
+                    [
+                        vid
+                        for k, v in data.items()
+                        if not k.startswith("_") and isinstance(v, list)
+                        for vid in v
+                        if isinstance(vid, str) and vid
+                    ]
+                ))
+                log.info(
+                    "Dry-run: %s tem %d ids; %d entrariam como `historico`, %d já conhecidos.",
+                    source.name,
+                    total,
+                    novos,
+                    total - novos,
+                )
+                return 0
+            inserted, skipped = backfill_from_processados(reg, data)
+            log.info(
+                "Backfill de %s: %d inseridos como `historico`, %d já conhecidos. Total: %d.",
+                source.name,
+                inserted,
+                skipped,
+                reg.total(),
+            )
+            return 0
+
+    log.error("Ação desconhecida: %s", action)
+    return 1
+
+
+# ---------------------------------------------------------------------------
 # Argparse
 # ---------------------------------------------------------------------------
 
@@ -484,6 +590,31 @@ def main() -> None:
 
     parser.add_argument("--list", action="store_true", help="Lista drafts pendentes")
 
+    reg_group = parser.add_argument_group("registro durável")
+    reg_group.add_argument(
+        "--registry",
+        choices=("stats", "list", "backfill"),
+        help="Consulta/administra o registro do que já passou pelo pipeline",
+    )
+    reg_group.add_argument("--db", help=f"Path do registro (default: {DEFAULT_DB_PATH})")
+    reg_group.add_argument("--channel", help="Filtra por canal (--registry list)")
+    reg_group.add_argument(
+        "--status",
+        choices=("descoberto", "baixado", "curado", "erro", "historico"),
+        help="Filtra por status (--registry list)",
+    )
+    reg_group.add_argument(
+        "--verdict",
+        choices=("DESCARTE", "PROPAGA", "ATOMICA", "FICHAMENTO"),
+        help="Filtra por veredicto do portão de curadoria (--registry list)",
+    )
+    reg_group.add_argument("--limit", type=int, help="Teto de linhas (--registry list)")
+    reg_group.add_argument(
+        "--from-file",
+        dest="from_file",
+        help="Origem do backfill (default: processados.json no vault)",
+    )
+
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--version", action="version", version=f"yt-nota {__version__}")
     args = parser.parse_args()
@@ -494,6 +625,8 @@ def main() -> None:
 
     _setup_logging(args.verbose)
 
+    if args.registry:
+        sys.exit(_cmd_registry(args))
     if args.list:
         sys.exit(_cmd_list(args))
     if args.finalize:

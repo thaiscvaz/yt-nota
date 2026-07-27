@@ -30,6 +30,12 @@ config/channel_aliases.yaml
 # Versionar só o domains.example.yaml (genérico).
 config/domains.yaml
 
+# Registro durável (SQLite). Não versionar: é binário (diff inútil, bloat por
+# commit) e revela a curadoria pessoal — mesma razão do channel_domains.yaml.
+# Recuperação numa máquina nova: `yt-nota --registry backfill` reconstrói o
+# histórico a partir do processados.json (versionado no git do vault).
+data/
+
 # Artefatos pessoais de execução (queues por canal, dumps de erro, scripts
 # ad-hoc de negócio/canal). Nunca versionar — revelam curadoria/dados pessoais.
 *.failed.txt
