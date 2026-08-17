@@ -407,16 +407,29 @@ def _update_channel_card(
 
 
 def _update_moc(tema: str, meta: dict, note_stem: str) -> Optional[Path]:
-    candidates = [
+    dominio = _as_str(meta.get("dominio") or "")
+    candidates = []
+    if dominio:
+        candidates.append(
+            VAULT_PATH / "30-Recursos" / dominio / tema / f"MOC-{tema}.md"
+        )
+    candidates += [
+        VAULT_PATH / "30-Recursos" / tema / f"MOC-{tema}.md",
         VAULT_PATH / "30-Recursos" / tema / f"{tema}.md",
-        VAULT_PATH / "30-Recursos" / f"{tema}.md",
         VAULT_PATH / "20-Areas" / tema / f"{tema}.md",
     ]
+    # A bare "30-Recursos/<tema>.md" candidate is forbidden: on Windows the
+    # lookup is case-insensitive and tema "Claude" resolves to the CLAUDE.md
+    # instruction file (incident 2026-07, repeated 2026-08).
+    candidates = [c for c in candidates if c.name.lower() != "claude.md"]
     moc_path = next((c for c in candidates if c.exists()), None)
     if moc_path is None:
         return None
     line = f"- [[{note_stem}|{_as_str(meta.get('titulo'))}]]"
     content = moc_path.read_text(encoding="utf-8")
+    if "```dataview" in content:
+        # MOC auto-lists notes via Dataview; manual link lines would duplicate.
+        return moc_path
     if note_stem in content:
         return moc_path
     if "## Literatura" in content:
