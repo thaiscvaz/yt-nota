@@ -1,4 +1,9 @@
 # Channel aliases: slug derived from the YouTube channel name -> canonical
 # vault folder slug. Copy to channel_aliases.yaml and add your own entries.
-# Example:
+# Example (renamed channel whose new display name regenerates a divergent slug):
 # Some-Channel-Long-Name: Some-Channel
+#
+# Also useful for case normalization: yt-dlp may yield the channel lowercased
+# while your canonical folder is CamelCase. Pin it so case-sensitive filesystems
+# (e.g. Linux CI) don't fragment the folder:
+# somechannel: SomeChannel

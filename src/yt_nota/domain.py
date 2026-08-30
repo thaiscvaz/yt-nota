@@ -33,7 +33,14 @@ def _load_mapping() -> dict[str, str]:
         if path.exists():
             with path.open(encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-            return {str(k): str(v) for k, v in data.items()}
+            # Index both the original slug and a lowercase alias so the lookup
+            # tolerates yt-dlp returning the channel in a different case
+            # (e.g. mapping has 'PasquaDev', yt-dlp yields 'pasquadev').
+            mapping: dict[str, str] = {}
+            for k, v in data.items():
+                mapping[str(k)] = str(v)
+                mapping.setdefault(str(k).lower(), str(v))
+            return mapping
     return {}
 
 
@@ -58,7 +65,7 @@ def resolve(canal_slug: str, override: Optional[str] = None) -> str:
         return validate(override)
 
     mapping = _load_mapping()
-    dominio = mapping.get(canal_slug)
+    dominio = mapping.get(canal_slug) or mapping.get(canal_slug.lower())
     if dominio:
         return validate(dominio)
 
