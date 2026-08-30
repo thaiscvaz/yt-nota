@@ -20,6 +20,9 @@ STATE.md
 _batches/
 queues/
 scripts/chain-*.sh
+# Operational scripts with hardcoded vault paths / channel ids (personal setup).
+scripts/backfill_registry_from_vault.py
+scripts/check_new_from_rss.py
 
 # Mapping de canal pra domínio é configuração pessoal do usuário.
 # Versionar só o .example.yaml (sem dados sensíveis).
