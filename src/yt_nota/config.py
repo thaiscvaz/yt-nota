@@ -7,12 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VAULT_PATH = Path(
-    os.environ.get(
-        "YT_NOTA_VAULT",
-        r"<user-home>\<cloud-storage>\Documentos\Obsidian",
-    )
-)
+# No default: a silent fallback path would write drafts somewhere unexpected.
+# The CLI refuses vault-touching modes while this is unset (see cli.main).
+VAULT_ENV_VAR = "YT_NOTA_VAULT"
+VAULT_CONFIGURED = bool(os.environ.get(VAULT_ENV_VAR, "").strip())
+VAULT_PATH = Path(os.environ.get(VAULT_ENV_VAR, "").strip() or ".")
 
 RECURSOS_DIR = VAULT_PATH / "30-Recursos"
 
@@ -21,6 +20,14 @@ PROCESSAR_DIR = RECURSOS_DIR / "Pipeline" / "_processar"
 
 # Cards vivos por canal (domínio Pessoas/, estrutura domain-first 2026-06)
 CARDS_DE_PESSOA_DIR = RECURSOS_DIR / "Pessoas"
+
+# Legacy processados.json, read only by `--registry backfill`. Its default lives
+# inside the vault; override when the automation folder sits elsewhere (e.g. a
+# second vault).
+LEGACY_PROCESSADOS_PATH = Path(
+    os.environ.get("YT_NOTA_PROCESSADOS", "").strip()
+    or VAULT_PATH / "Claude" / "automacoes" / "curadoria-incremental" / "data" / "processados.json"
+)
 
 # Paths resolvidos em runtime via PACKAGE_ROOT.
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent

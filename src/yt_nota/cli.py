@@ -21,12 +21,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sqlite3
 import sys
 import time
 from pathlib import Path
 
 from . import __version__
-from .config import PROCESSAR_DIR, VAULT_PATH
+from . import config
+from .config import LEGACY_PROCESSADOS_PATH, PROCESSAR_DIR, VAULT_ENV_VAR, VAULT_PATH
 from .domain import DomainResolutionError, resolve as resolve_dominio
 from .extractor import (
     ExtractError,
@@ -44,6 +46,8 @@ from .registry import (
     STATUS_CURADO,
     STATUS_DESCOBERTO,
     STATUS_ERRO,
+    VERDICT_DESCARTE,
+    VERDICT_FICHAMENTO,
     backfill_from_processados,
     open_registry,
 )
@@ -53,6 +57,8 @@ from .vault import (
     find_video_anywhere,
     is_video_already_processed,
     list_pending_drafts,
+    read_draft_meta,
+    reset_dedup_index,
     write_draft,
 )
 from .whisper_fallback import (
@@ -82,6 +88,76 @@ def _rel(p: Path | None) -> str:
         return str(p.relative_to(VAULT_PATH))
     except Exception:
         return str(p)
+
+
+# ---------------------------------------------------------------------------
+# Registro durável (escrita pelo próprio CLI)
+# ---------------------------------------------------------------------------
+# O registro é a fonte do dedup; o vault é a rede de segurança. Uma falha de
+# SQLite nunca derruba a extração nem o finalize: vira warning e o scan do vault
+# continua valendo.
+
+def _registry_db(args: argparse.Namespace) -> Path:
+    return Path(getattr(args, "db", None) or DEFAULT_DB_PATH)
+
+
+def _registry_done_ids(args: argparse.Namespace) -> set[str]:
+    """video_ids que o registro já dá por baixados ou curados.
+
+    `descoberto` fica de fora de propósito: é vídeo visto no RSS que ainda precisa
+    ser baixado. `historico` também: procedência incerta, o vault decide.
+    """
+    try:
+        with open_registry(_registry_db(args)) as reg:
+            return {
+                v.video_id
+                for status in (STATUS_BAIXADO, STATUS_CURADO)
+                for v in reg.list_videos(status=status)
+            }
+    except sqlite3.Error as e:
+        log.warning("Registro indisponível (%s); dedup só pelo vault.", e)
+        return set()
+
+
+def _registry_record(
+    args: argparse.Namespace,
+    video_id: str,
+    channel_name: str,
+    *,
+    title: str | None = None,
+    channel_id: str | None = None,
+    published_at: str | None = None,
+    duration_s: int | None = None,
+    status: str | None = None,
+    transcript_source: str | None = None,
+    verdict: str | None = None,
+    reason: str | None = None,
+    vault_paths: tuple[str, ...] = (),
+) -> None:
+    """Garante a linha do vídeo e aplica a transição pedida. Nunca levanta."""
+    if not video_id:
+        return
+    meta = dict(
+        title=title or None,
+        channel_id=channel_id or None,
+        published_at=published_at or None,
+        duration_s=duration_s or None,
+    )
+    try:
+        with open_registry(_registry_db(args)) as reg:
+            reg.mark_discovered(video_id, channel_name, **meta)
+            reg.enrich(video_id, **meta)
+            if status == STATUS_BAIXADO:
+                # Nunca rebaixa um vídeo já curado (reprocesso com --force).
+                current = reg.get(video_id)
+                if current is None or current.status != STATUS_CURADO:
+                    reg.mark_downloaded(video_id, transcript_source=transcript_source)
+            elif status == STATUS_CURADO and verdict:
+                reg.mark_curated(video_id, verdict, reason=reason, vault_paths=vault_paths)
+            elif status == STATUS_ERRO and reason:
+                reg.mark_error(video_id, reason)
+    except sqlite3.Error as e:
+        log.warning("  Registro não atualizado para %s: %s", video_id, e)
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +288,17 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         dominio=dominio,
     )
     log.info("  Draft: %s", _rel(draft_path))
+    _registry_record(
+        args,
+        video["video_id"],
+        canal_slug_str,
+        title=video.get("title"),
+        channel_id=video.get("channel_id"),
+        published_at=video.get("upload_date_iso"),
+        duration_s=video.get("duration_seconds"),
+        status=STATUS_BAIXADO,
+        transcript_source=(transcript.get("origin") if transcript else None),
+    )
     return "ok"
 
 
@@ -257,12 +344,19 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     failures: list[str] = []
     did_network = False
     source = args.retry_pending or args.file
+    registry_done = set() if args.force else _registry_done_ids(args)
     for i, url in enumerate(urls, 1):
         # Dedup sem rede: video_id parseado da URL. Vídeo já processado não gasta
         # extract_info nem sleep — re-rodar uma queue grande vira no-op instantâneo.
         if not args.force:
             vid = video_id_from_url(url)
             if vid:
+                # O registro vem primeiro: cobre o que o vault não prova (vídeo
+                # descartado na curadoria não deixa nota).
+                if vid in registry_done:
+                    log.info("[%d/%d] Já no registro, pulando: %s", i, len(urls), vid)
+                    successes += 1
+                    continue
                 evidence = find_video_anywhere(vid)
                 if evidence is not None:
                     log.info("[%d/%d] Já processado, pulando: %s", i, len(urls), _rel(evidence))
@@ -403,11 +497,28 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
         log.info("MOC: %s", _rel(result["moc_path"]))
     if result["draft_deleted"]:
         log.info("Draft deletado.")
+
+    # Fecha o ciclo no registro: sem isso o veredicto dependia de a skill lembrar
+    # de chamar `--registry mark` depois do finalize.
+    if result.get("video_id"):
+        paths = tuple(
+            _rel(result[k]) for k in ("note_path", "transcript_path") if result.get(k)
+        )
+        _registry_record(
+            args,
+            result["video_id"],
+            result.get("canal_slug") or "Canal-Desconhecido",
+            title=result.get("titulo"),
+            status=STATUS_CURADO,
+            verdict=getattr(args, "verdict", None) or VERDICT_FICHAMENTO,
+            reason=getattr(args, "reason", None),
+            vault_paths=paths,
+        )
     return 0
 
 
 # ---------------------------------------------------------------------------
-# Modo list
+# Modo list / triage / discard
 # ---------------------------------------------------------------------------
 
 def _cmd_list(_args: argparse.Namespace) -> int:
@@ -421,14 +532,76 @@ def _cmd_list(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_triage(_args: argparse.Namespace) -> int:
+    """Lista os drafts pendentes só com metadado, uma linha TSV por draft.
+
+    Serve à triagem barata: decidir pelo título o que merece síntese custa uma
+    fração de ler cada transcript inteiro.
+    """
+    drafts = list_pending_drafts()
+    if not drafts:
+        log.info("Sem drafts pendentes.")
+        return 0
+    sys.stdout.write("video_id\tcanal\tduracao\tpublicado\ttitulo\tdraft\n")
+    for d in drafts:
+        meta = read_draft_meta(d)
+        sys.stdout.write(
+            "\t".join(
+                str(meta.get(k) or "")
+                for k in ("video_id", "canal", "duracao", "data_publicacao", "titulo")
+            )
+            + f"\t{d.name}\n"
+        )
+    log.info("%d draft(s) pendente(s).", len(drafts))
+    return 0
+
+
+def _cmd_discard(args: argparse.Namespace) -> int:
+    """Descarta drafts sem sintetizar: grava DESCARTE no registro e apaga o draft."""
+    if not args.reason:
+        log.error("--discard exige --reason (o motivo é o que torna o descarte auditável).")
+        return 1
+    failures = 0
+    for raw in args.discard:
+        draft = Path(raw)
+        if not draft.exists():
+            draft = PROCESSAR_DIR / raw
+        if not draft.exists():
+            log.error("Draft não encontrado: %s", raw)
+            failures += 1
+            continue
+        meta = read_draft_meta(draft)
+        video_id = str(meta.get("video_id") or "")
+        if not video_id:
+            log.error("Draft sem video_id, preservado: %s", draft.name)
+            failures += 1
+            continue
+        canal_slug_str = channel_slug(str(meta.get("canal") or "Canal-Desconhecido"))
+        try:
+            with open_registry(_registry_db(args)) as reg:
+                reg.mark_discovered(
+                    video_id, canal_slug_str, title=str(meta.get("titulo") or "") or None
+                )
+                reg.mark_curated(video_id, VERDICT_DESCARTE, reason=args.reason)
+        except sqlite3.Error as e:
+            # Sem o registro o descarte seria silencioso e o vídeo voltaria a ser
+            # baixado; melhor manter o draft.
+            log.error("Registro não atualizado, draft preservado (%s): %s", draft.name, e)
+            failures += 1
+            continue
+        draft.unlink()
+        log.info("Descartado: %s (%s)", draft.name, video_id)
+    reset_dedup_index()
+    return 1 if failures else 0
+
+
 # ---------------------------------------------------------------------------
 # Modo registry
 # ---------------------------------------------------------------------------
 
-# Onde o processados.json legado mora no vault. Só é lido no backfill.
-LEGACY_PROCESSADOS = (
-    VAULT_PATH / "Claude" / "automacoes" / "curadoria-incremental" / "data" / "processados.json"
-)
+# Onde o processados.json legado mora. Só é lido no backfill; override via
+# YT_NOTA_PROCESSADOS quando não estiver dentro do YT_NOTA_VAULT.
+LEGACY_PROCESSADOS = LEGACY_PROCESSADOS_PATH
 
 
 def _print_counts(title: str, counts: dict[str, int]) -> None:
@@ -547,10 +720,52 @@ def _cmd_registry(args: argparse.Namespace) -> int:
             )
             return 0
 
+        if action == "adopt-drafts":
+            # Drafts baixados antes de o CLI escrever no registro (waves antigas)
+            # existem no vault mas não aqui. Sem adotá-los, o dedup depende só do scan.
+            if not config.VAULT_CONFIGURED:
+                log.error("%s não definido; adopt-drafts precisa do vault.", VAULT_ENV_VAR)
+                return 1
+            adopted = known = skipped = 0
+            for draft in list_pending_drafts():
+                meta = read_draft_meta(draft)
+                video_id = str(meta.get("video_id") or "")
+                if not video_id:
+                    skipped += 1
+                    continue
+                existing = reg.get(video_id)
+                if existing is not None and existing.status in (STATUS_BAIXADO, STATUS_CURADO):
+                    known += 1
+                    continue
+                if args.dry_run:
+                    adopted += 1
+                    continue
+                canal = channel_slug(str(meta.get("canal") or "Canal-Desconhecido"))
+                titulo = str(meta.get("titulo") or "") or None
+                publicado = str(meta.get("data_publicacao") or "") or None
+                reg.mark_discovered(video_id, canal, title=titulo, published_at=publicado)
+                reg.enrich(video_id, title=titulo, published_at=publicado)
+                reg.mark_downloaded(
+                    video_id, transcript_source=str(meta.get("transcript_origem") or "") or None
+                )
+                adopted += 1
+            log.info(
+                "%s%d draft(s) adotados como `baixado`, %d já conhecidos, %d sem video_id.",
+                "Dry-run: " if args.dry_run else "",
+                adopted,
+                known,
+                skipped,
+            )
+            return 0
+
         if action == "backfill":
             source = Path(args.from_file) if args.from_file else LEGACY_PROCESSADOS
             if not source.exists():
-                log.error("Arquivo de origem não encontrado: %s", source)
+                log.error(
+                    "Arquivo de origem não encontrado: %s. "
+                    "Passe --from-file <processados.json> ou defina YT_NOTA_PROCESSADOS.",
+                    source,
+                )
                 return 1
             data = json.loads(source.read_text(encoding="utf-8"))
             if args.dry_run:
@@ -665,14 +880,26 @@ def main() -> None:
     )
 
     parser.add_argument("--list", action="store_true", help="Lista drafts pendentes")
+    parser.add_argument(
+        "--triage",
+        action="store_true",
+        help="Lista drafts pendentes em TSV (video_id, canal, duração, data, título) pra triagem por título",
+    )
+    parser.add_argument(
+        "--discard",
+        nargs="+",
+        metavar="DRAFT",
+        help="Descarta drafts sem sintetizar: grava DESCARTE no registro e apaga o draft (exige --reason)",
+    )
 
     reg_group = parser.add_argument_group("registro durável")
     reg_group.add_argument(
         "--registry",
-        choices=("stats", "list", "filter", "mark", "backfill"),
+        choices=("stats", "list", "filter", "mark", "backfill", "adopt-drafts"),
         help=(
             "Consulta/administra o registro do que já passou pelo pipeline. "
-            "filter = imprime só os ids desconhecidos; mark = grava transição de status"
+            "filter = imprime só os ids desconhecidos; mark = grava transição de status; "
+            "adopt-drafts = registra como `baixado` os drafts pendentes que o registro não conhece"
         ),
     )
     reg_group.add_argument("--db", help=f"Path do registro (default: {DEFAULT_DB_PATH})")
@@ -685,11 +912,17 @@ def main() -> None:
     reg_group.add_argument(
         "--verdict",
         choices=("DESCARTE", "PROPAGA", "ATOMICA", "FICHAMENTO"),
-        help="Veredicto do portão de curadoria. Filtro em `list`; obrigatório em `mark --status curado`",
+        help=(
+            "Veredicto do portão de curadoria. Filtro em `list`; obrigatório em "
+            "`mark --status curado`; em --finalize, o veredicto gravado (default FICHAMENTO)"
+        ),
     )
     reg_group.add_argument(
         "--reason",
-        help="Razão do veredicto (`mark --status curado`) ou do erro (`mark --status erro`)",
+        help=(
+            "Razão do veredicto (`mark --status curado`, --finalize, --discard) "
+            "ou do erro (`mark --status erro`)"
+        ),
     )
     reg_group.add_argument(
         "--ids",
@@ -718,8 +951,19 @@ def main() -> None:
 
     if args.registry:
         sys.exit(_cmd_registry(args))
+    if not config.VAULT_CONFIGURED:
+        log.error(
+            "%s não definido. Aponte para a raiz do seu vault Obsidian no .env "
+            "(copie .env.example) ou na variável de ambiente.",
+            VAULT_ENV_VAR,
+        )
+        sys.exit(1)
     if args.list:
         sys.exit(_cmd_list(args))
+    if args.triage:
+        sys.exit(_cmd_triage(args))
+    if args.discard:
+        sys.exit(_cmd_discard(args))
     if args.finalize:
         sys.exit(_cmd_finalize(args))
     sys.exit(_cmd_extract(args))

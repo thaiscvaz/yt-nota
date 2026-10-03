@@ -261,3 +261,25 @@ def test_finalize_skip_body_check_bypasses_guard(tmp_path, monkeypatch):
     )
     rc = cli._cmd_finalize(_finalize_args(draft, body, skip_body_check=True))
     assert rc == 0
+
+
+def test_vault_unset_aborts_vault_modes(monkeypatch, caplog):
+    monkeypatch.setattr(cli.config, "VAULT_CONFIGURED", False)
+    monkeypatch.setattr("sys.argv", ["yt-nota", "--list"])
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "YT_NOTA_VAULT" in caplog.text
+
+
+def test_vault_unset_still_allows_registry(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli.config, "VAULT_CONFIGURED", False)
+    db = tmp_path / "r.db"
+    monkeypatch.setattr("sys.argv", ["yt-nota", "--registry", "stats", "--db", str(db)])
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0

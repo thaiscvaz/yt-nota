@@ -8,18 +8,16 @@ CLI Python + skill Claude Code `/yt-sintese` pra transformar vídeos do YouTube 
 
 ## Onde o yt-nota escreve
 
-O CLI **escreve no vault Obsidian apontado por `YT_NOTA_VAULT`** (variável de ambiente; default em `src/yt_nota/config.py`). A estrutura esperada:
+O CLI **escreve no vault Obsidian apontado por `YT_NOTA_VAULT`** (variável de ambiente, obrigatória para extract/finalize/list; sem ela o CLI aborta com instrução). A estrutura esperada:
 
 ```
 <vault>/
   30-Recursos/
-    Literatura/
-      Pipeline/_processar/                    ← drafts pendentes de síntese
-      <dominio>/<canal>/                      ← notas finais após /yt-sintese
-        3-<id>-<slug>.md
-        transcripts/3-<id>-<slug>.transcript.md
-    Notas/
-      Cards-de-Pessoa/<canal>.md              ← card vivo do canal
+    Pipeline/_processar/                      ← drafts pendentes de síntese
+    <dominio>/<canal>/                        ← notas finais após /yt-sintese
+      3-<id>-<slug>.md
+      transcripts/3-<id>-<slug>.transcript.md
+    Pessoas/<canal>.md                        ← card vivo do canal
 ```
 
 Onde `<dominio>` é um valor da taxonomia configurável do vault (definida em `config/domains.yaml`, copiada de `config/domains.example.yaml`), resolvido via:

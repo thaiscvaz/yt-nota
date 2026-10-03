@@ -19,7 +19,7 @@ Consumir YouTube como fonte de aprendizado vira fricção em batch. Manual: abri
 └─────────────────────┘         └────────────────────────┘
 ```
 
-**Passo 1 (terminal):** `yt-nota <url>` extrai metadata + transcript via yt-dlp e escreve um **draft** em `<vault>/30-Recursos/Literatura/Pipeline/_processar/`.
+**Passo 1 (terminal):** `yt-nota <url>` extrai metadata + transcript via yt-dlp e escreve um **draft** em `<vault>/30-Recursos/Pipeline/_processar/`.
 
 **Passo 2 (Claude Code):** invoca `/yt-sintese`. A skill lê todos os drafts pendentes, gera o body da nota (7 seções), chama `yt-nota --finalize` que monta a nota final + transcript bruto + atualiza channel card, e deleta o draft.
 
@@ -97,11 +97,11 @@ A skill processa tudo. Pra um draft específico:
 Por vídeo processado:
 
 ```
-<vault>/30-Recursos/Literatura/<dominio>/<Canal>/
+<vault>/30-Recursos/<dominio>/<Canal>/
 ├── 3-<timestamp>-<slug>.md                       ← síntese (frontmatter + 7 seções)
 └── transcripts/3-<timestamp>-<slug>.transcript.md ← transcript com timestamps
 
-<vault>/30-Recursos/Notas/Cards-de-Pessoa/<Canal>.md  ← channel card (criado/atualizado)
+<vault>/30-Recursos/Pessoas/<Canal>.md  ← channel card (criado/atualizado)
 ```
 
 `<dominio>` é um valor da taxonomia configurável do seu vault, definida em `config/domains.yaml` (copie de `config/domains.example.yaml`). Resolvido em cascata: flag `--dominio` → frontmatter do draft → lookup em `config/channel_domains.yaml`. Canal novo precisa entrar no YAML antes do finalize, ou o CLI aborta com instrução clara.
@@ -126,7 +126,27 @@ yt-nota --registry list --status erro
 # Importa o processados.json legado (--dry-run pra conferir antes)
 yt-nota --registry backfill --dry-run
 yt-nota --registry backfill
+
+# Registra como `baixado` os drafts pendentes que o registro ainda não conhece
+yt-nota --registry adopt-drafts --dry-run
+yt-nota --registry adopt-drafts
 ```
+
+O próprio CLI mantém o registro em dia: a extração grava `baixado`, o `--finalize` grava `curado` com o veredicto (`--verdict`, default `FICHAMENTO`) e o dedup consulta o registro antes de varrer o vault. Se o SQLite falhar, a operação segue e o vault continua valendo como rede de segurança.
+
+### Triagem antes da síntese
+
+Sintetizar um draft custa a leitura do transcript inteiro. Quando a fila cresce, vale decidir pelo título o que merece esse custo:
+
+```bash
+# Uma linha TSV por draft pendente: video_id, canal, duração, data, título, arquivo
+yt-nota --triage
+
+# Descarta sem sintetizar: grava DESCARTE com a razão no registro e apaga o draft
+yt-nota --discard 20260903172528-algum-video.draft.md --reason "fora do escopo"
+```
+
+`--discard` recusa rodar sem `--reason` e preserva o draft se não conseguir gravar no registro. Sem o registro o descarte seria silencioso e o vídeo voltaria a ser baixado.
 
 ### Os verbos que a automação usa
 

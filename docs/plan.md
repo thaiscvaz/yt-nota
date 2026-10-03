@@ -10,7 +10,7 @@ A dor é **a extração manual + falta de batch**, não a qualidade da síntese 
 
 ## Solução em 2 passos
 
-1. **Terminal:** `yt-nota <url>` extrai metadata + transcript via yt-dlp e grava um draft em `<vault>/30-Recursos/Literatura/Pipeline/_processar/`.
+1. **Terminal:** `yt-nota <url>` extrai metadata + transcript via yt-dlp e grava um draft em `<vault>/30-Recursos/Pipeline/_processar/`.
 2. **Claude Code:** `/yt-sintese` lê drafts pendentes, gera o body (7 seções), chama `yt-nota --finalize` que monta a nota final + transcript + channel card e deleta o draft.
 
 A síntese acontece dentro da sua sessão Claude Code (sem chamar API Anthropic externa). Custo extra: zero.
@@ -25,7 +25,7 @@ A síntese acontece dentro da sua sessão Claude Code (sem chamar API Anthropic 
 | Input | URL única, múltiplas, `--playlist`, `--file`, `--stdin` |
 | Transcript bruto | Arquivo irmão `3-<id>-<slug>.transcript.md` |
 | Nota síntese | 7 seções: em uma frase, o que defende, o que mais me marcou (citação + `[mm:ss]`), o que isso muda pra mim, dicionário (4-7 termos), notas permanentes a criar, referência |
-| Channel card | Auto-criado/atualizado em `30-Recursos/Notas/Cards-de-Pessoa/<Canal>.md` |
+| Channel card | Auto-criado/atualizado em `30-Recursos/Pessoas/<Canal>.md` |
 | MOC temático | Só com `--tema X` (não auto-detecta) |
 | Vídeo sem transcript | Draft com metadata + descrição; síntese fica mais curta |
 | Idioma | Transcript fica no original. Síntese sempre PT-BR. |
@@ -140,9 +140,9 @@ Executado em 2026-05-18 com URL `https://www.youtube.com/watch?v=jYZ6RQay4QY`. R
 - Draft criado: `Pipeline/_processar/20260518164518-o-nicho-que-fez-esse-casal.draft.md`
 - Skill `/yt-sintese` processou em ~30s
 - Saída no vault:
-  - `30-Recursos/Literatura/<dominio>/REDACTED-CHANNEL/3-20260518164518-o-nicho-que-fez-esse-casal.md`
-  - `30-Recursos/Literatura/<dominio>/REDACTED-CHANNEL/transcripts/3-20260518164518-o-nicho-que-fez-esse-casal.transcript.md`
-  - `30-Recursos/Notas/Cards-de-Pessoa/REDACTED-CHANNEL.md` (novo card)
+  - `30-Recursos/<dominio>/REDACTED-CHANNEL/3-20260518164518-o-nicho-que-fez-esse-casal.md`
+  - `30-Recursos/<dominio>/REDACTED-CHANNEL/transcripts/3-20260518164518-o-nicho-que-fez-esse-casal.transcript.md`
+  - `30-Recursos/Pessoas/REDACTED-CHANNEL.md` (novo card)
 - Draft auto-deletado
 
 16/16 testes passando.

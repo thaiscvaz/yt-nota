@@ -8,7 +8,7 @@ depending on `config/domains.yaml` (personal) or `config/domains.example.yaml`.
 
 import pytest
 
-from yt_nota import config
+from yt_nota import cli, config
 
 # Neutral domains used across the suite. Includes the values asserted in
 # test_vault.py ("Tech", "Career").
@@ -34,3 +34,12 @@ def stub_valid_dominios(tmp_path_factory, monkeypatch):
     config.reload_dominios()
     yield
     config.reload_dominios()
+
+
+@pytest.fixture(autouse=True)
+def isolated_registry(tmp_path_factory, monkeypatch):
+    """The CLI writes to the durable registry on extract/finalize/discard; keep
+    every test off the real `data/registry.db`."""
+    db = tmp_path_factory.mktemp("registry") / "registry.db"
+    monkeypatch.setattr(cli, "DEFAULT_DB_PATH", db)
+    return db

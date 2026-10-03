@@ -159,6 +159,26 @@ def write_draft(
 # Finalize (chamado pela skill após síntese)
 # ---------------------------------------------------------------------------
 
+def read_draft_meta(draft_path: Path) -> dict:
+    """Frontmatter de um draft, sem parsear o transcript (barato pra listar centenas)."""
+    lines: list[str] = []
+    try:
+        with draft_path.open(encoding="utf-8") as f:
+            if f.readline().strip() != "---":
+                return {}
+            for line in f:
+                if line.strip() == "---":
+                    break
+                lines.append(line)
+    except OSError:
+        return {}
+    try:
+        meta = yaml.safe_load("".join(lines)) or {}
+    except yaml.YAMLError:
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
 def _parse_draft(draft_path: Path) -> tuple[dict, list[Segment], Optional[str]]:
     """Lê um draft e devolve (metadata_dict, segments, descricao)."""
     text = draft_path.read_text(encoding="utf-8")
@@ -267,6 +287,9 @@ def finalize_draft(
         "channel_card_path": card_path,
         "moc_path": moc_path,
         "draft_deleted": delete_draft,
+        "video_id": _as_str(meta.get("video_id")),
+        "canal_slug": canal_slug_str,
+        "titulo": _as_str(meta.get("titulo")),
     }
 
 

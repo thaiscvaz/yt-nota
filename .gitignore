@@ -48,3 +48,5 @@ data/
 enum_err.txt
 /run_*.ps1
 scripts/run-*.sh
+# Hyphenated queue files too (e.g. databricks-genie-aibi-queue.txt).
+*-queue.txt
