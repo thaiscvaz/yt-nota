@@ -98,6 +98,7 @@ Por vídeo processado:
 
 ```
 <vault>/30-Recursos/<dominio>/<Canal>/
+├── MOC-<Canal>.md                                 ← hub da fonte (criado com a primeira nota, atualizado a cada uma)
 ├── 3-<timestamp>-<slug>.md                       ← síntese (frontmatter + 7 seções)
 └── transcripts/3-<timestamp>-<slug>.transcript.md ← transcript com timestamps
 

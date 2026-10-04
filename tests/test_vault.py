@@ -253,7 +253,12 @@ def test_finalize_note_has_complete_frontmatter(fake_vault):
     assert "tipo: literatura" in content
     assert "subtipo: vídeo" in content
     assert "fonte: YouTube" in content
-    assert "up: \"[[Canal-Teste]]\"" in content
+    assert 'moc: "[[MOC-Canal-Teste]]"' in content
+    assert "\nup:" not in content
+    assert "created: " in content and "updated: " in content
+    assert "aliases:\n  - Como usar Delta Lake na prática" in content
+    assert "video_id: abc123" in content
+    assert "  - tech\n" in content
     assert "transcript_file:" in content
 
 

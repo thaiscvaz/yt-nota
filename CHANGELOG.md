@@ -5,6 +5,18 @@ Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](http
 ## [Unreleased]
 
 ### Mudado
+- **A nota final segue o frontmatter mínimo do vault.** `moc: "[[MOC-<Fonte>]]"` substitui `up:` (deprecado), entram `created`, `updated`, `video_id`, `aliases` (o título real do vídeo, pra nota ser achada pelo título e não só pelo id do arquivo) e a tag do domínio. O título da nota é `# <título>`, sem o id na frente.
+- **Toda pasta de fonte ganha um hub.** O `--finalize` usa o `MOC-*.md` que já existe na pasta ou cria `MOC-<Fonte>.md` junto com a primeira nota, e sempre adiciona a nota nova em `## Literatura` (exceto em MOC com Dataview). Antes só atualizava MOC quando o draft tinha `tema:`.
+- **Sem travessão nos textos gerados pelo CLI**: título da nota, cabeçalho do draft e do transcript, linha do card do canal (agora `[[nota|Título]] (data)`).
+
+### Corrigido
+- **Dedup pulava vídeo citado na descrição de outro.** O índice dos drafts casava `v=<id>` no arquivo inteiro, e a descrição do vídeo fica no draft; canal que linka os próprios vídeos perdia esses vídeos, contados como "já processados". Em drafts o índice agora lê só o frontmatter.
+
+### Adicionado
+- **Registro de qualidade por nota no `--finalize`** (`quality.py`, `data/finalize-log.jsonl`). Duas checagens determinísticas que nunca bloqueiam: cada citação em blockquote é procurada no transcript (literal, parcial, não encontrada; transcript em outro idioma sai como traduzida) e, se `YT_NOTA_WRITING_GATE` aponta pra um arquivo Python com `gate_text(text)`, o resultado do gate de estilo entra na mesma linha.
+- Testes: 17 novos em `tests/test_quality.py` e `tests/test_vault_compliance.py` (221 no total).
+
+### Mudado (anterior)
 - **Taxonomia de domínios agora é configurável** (era hardcoded no source). `config.py` deixou de declarar `VALID_DOMINIOS` como frozenset fixo; passou a carregar `config/domains.yaml` (pessoal, não versionado) com fallback pra `config/domains.example.yaml` (genérico, versionado), via `get_valid_dominios()` + `reload_dominios()` — mesma cascata do `channel_domains.yaml`. `domain.py` e `vault.py` chamam a função em runtime. Objetivo: o repo deixa de carregar a taxonomia pessoal do usuário e vira ferramenta genérica/forkável (padrão FrankMD). Migração: copie `domains.example.yaml` pra `domains.yaml` e edite com seus domínios.
 
 ### Adicionado

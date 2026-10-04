@@ -25,6 +25,7 @@ from .config import (
     RECURSOS_DIR,
     VAULT_PATH,
 )
+from .quality import quality_report
 from .slug import channel_slug, title_slug
 from .transcript import Segment, segments_to_markdown, segments_to_plain
 
@@ -124,7 +125,7 @@ def write_draft(
     body_parts = [
         "\n".join(fm),
         "",
-        f"# DRAFT — {video['title']}",
+        f"# DRAFT: {video['title']}",
         "",
         "> [!warning] Síntese pendente",
         "> Esse arquivo aguarda processamento via skill `/yt-sintese` no Claude Code.",
@@ -253,7 +254,13 @@ def finalize_draft(
         transcript_path = transcripts_dir / f"{note_path.stem}.transcript.md"
         transcript_link = transcript_path.stem
 
-    fm = _build_final_frontmatter(meta, canal_slug_str, transcript_link, ts_id)
+    # The source hub is resolved before the note is written so `moc:` points at
+    # the MOC that actually exists in the folder (or the one about to be created).
+    source_moc = _source_moc_path(canal_dir, canal_slug_str)
+
+    fm = _build_final_frontmatter(
+        meta, canal_slug_str, transcript_link, ts_id, dominio=dominio, moc_stem=source_moc.stem
+    )
     header = _build_header(meta, ts_id)
     note_path.write_text(fm + "\n" + header + body_markdown.strip() + "\n", encoding="utf-8")
 
@@ -267,9 +274,17 @@ def finalize_draft(
     if not no_channel_card:
         card_path = _update_channel_card(canal, canal_slug_str, meta, ts_id, slug, note_path.stem)
 
-    moc_path: Optional[Path] = None
+    moc_path = _update_source_moc(source_moc, canal, canal_slug_str, dominio, meta, note_path.stem)
     if meta.get("tema"):
-        moc_path = _update_moc(meta["tema"], meta, note_path.stem)
+        # Legacy tema hub; a no-op when it resolves to the source MOC just updated.
+        _update_moc(meta["tema"], meta, note_path.stem)
+
+    quality = quality_report(
+        header + body_markdown,
+        body_markdown,
+        segments,
+        transcript_lang=_as_str(transcript_lang),
+    )
 
     if delete_draft:
         try:
@@ -290,6 +305,7 @@ def finalize_draft(
         "video_id": _as_str(meta.get("video_id")),
         "canal_slug": canal_slug_str,
         "titulo": _as_str(meta.get("titulo")),
+        "quality": quality,
     }
 
 
@@ -298,12 +314,21 @@ def _build_final_frontmatter(
     canal_slug_str: str,
     transcript_link: Optional[str],
     ts_id: str,
+    *,
+    dominio: Optional[str] = None,
+    moc_stem: Optional[str] = None,
 ) -> str:
     lines = ["---"]
     lines.append(f"ID: {ts_id}")
     lines.append("tipo: literatura")
     lines.append("subtipo: vídeo")
     lines.append(f"titulo: {_yaml_quote(_as_str(meta.get('titulo')))}")
+    # The file name is an id plus a truncated slug; the alias makes the note
+    # reachable by its real title in the quick switcher and link autocomplete.
+    lines.append("aliases:")
+    lines.append(f"  - {_yaml_quote(_as_str(meta.get('titulo')))}")
+    if meta.get("video_id"):
+        lines.append(f"video_id: {_as_str(meta['video_id'])}")
     lines.append(f"autores: {_yaml_quote(_as_str(meta.get('canal')))}")
     pub = _as_str(meta.get("data_publicacao"))
     if pub:
@@ -324,10 +349,14 @@ def _build_final_frontmatter(
     else:
         lines.append("transcript: indisponivel")
     lines.append("status: lido")
+    lines.append(f"created: {_today_iso()}")
+    lines.append(f"updated: {_today_iso()}")
     lines.append("tags:")
     lines.append("  - literatura")
     lines.append("  - youtube")
-    lines.append(f'up: "[[{canal_slug_str}]]"')
+    if dominio:
+        lines.append(f"  - {dominio.lower()}")
+    lines.append(f'moc: "[[{moc_stem or "MOC-" + canal_slug_str}]]"')
     if transcript_link:
         lines.append(f'transcript_file: "[[{transcript_link}]]"')
     lines.append("---")
@@ -342,7 +371,7 @@ def _build_header(meta: dict, ts_id: str) -> str:
     else:
         lang_label = "transcript indisponível"
     return (
-        f"\n# {ts_id} — {_as_str(meta.get('titulo'))}\n\n"
+        f"\n# {_as_str(meta.get('titulo'))}\n\n"
         f"> [!info] Vídeo de {_as_str(meta.get('canal'))}\n"
         f"> **Publicado:** {pub} | **Duração:** {dur} | **Idioma:** {lang_label}\n\n"
     )
@@ -369,7 +398,7 @@ def _build_transcript_file(
         fm.append(f"origem: {origem}")
     fm.append(f"segmentos: {len(segments)}")
     fm.append("---")
-    return "\n".join(fm) + f"\n\n# Transcript — {_as_str(meta.get('titulo'))}\n\nVídeo: {_as_str(meta.get('url'))}\n" + segments_to_markdown(segments)
+    return "\n".join(fm) + f"\n\n# Transcript: {_as_str(meta.get('titulo'))}\n\nVídeo: {_as_str(meta.get('url'))}\n" + segments_to_markdown(segments)
 
 
 def _update_channel_card(
@@ -383,7 +412,7 @@ def _update_channel_card(
     CARDS_DE_PESSOA_DIR.mkdir(parents=True, exist_ok=True)
     card_path = CARDS_DE_PESSOA_DIR / f"{canal_slug_str}.md"
     pub = _as_str(meta.get("data_publicacao")) or "sem data"
-    line = f"- [[{note_stem}]] — {_as_str(meta.get('titulo'))} ({pub})"
+    line = f"- [[{note_stem}|{_link_alias(_as_str(meta.get('titulo')))}]] ({pub})"
 
     if not card_path.exists():
         fm = ["---", "tipo: card-vivo", f"canal: {_yaml_quote(canal)}"]
@@ -427,6 +456,77 @@ def _update_channel_card(
         existing = existing.rstrip() + "\n\n## Vídeos processados\n\n" + line + "\n"
     card_path.write_text(existing, encoding="utf-8")
     return card_path
+
+
+def _link_alias(title: str) -> str:
+    """Title safe to use as the display half of a wikilink."""
+    return title.replace("|", "-").replace("[", "(").replace("]", ")").strip()
+
+
+def _source_moc_path(canal_dir: Path, canal_slug_str: str) -> Path:
+    """Hub of a source folder: the existing `MOC-*.md`, else `MOC-<canal>.md`."""
+    preferred = canal_dir / f"MOC-{canal_slug_str}.md"
+    if preferred.exists():
+        return preferred
+    existing = sorted(canal_dir.glob("MOC-*.md")) if canal_dir.is_dir() else []
+    return existing[0] if existing else preferred
+
+
+def _append_to_moc(moc_path: Path, note_stem: str, titulo: str) -> None:
+    line = f"- [[{note_stem}|{_link_alias(titulo)}]]"
+    content = moc_path.read_text(encoding="utf-8")
+    if "```dataview" in content:
+        # MOC auto-lists notes via Dataview; manual link lines would duplicate.
+        return
+    if note_stem in content:
+        return
+    content = re.sub(
+        r"^updated:.*$", f"updated: {_today_iso()}", content, count=1, flags=re.MULTILINE
+    )
+    if "## Literatura" in content:
+        content = content.replace("## Literatura\n", f"## Literatura\n\n{line}\n", 1)
+        content = content.replace(f"\n\n{line}\n\n\n", f"\n\n{line}\n\n", 1)
+    else:
+        content = content.rstrip() + "\n\n## Literatura\n\n" + line + "\n"
+    moc_path.write_text(content, encoding="utf-8")
+
+
+def _update_source_moc(
+    moc_path: Path,
+    canal: str,
+    canal_slug_str: str,
+    dominio: str,
+    meta: dict,
+    note_stem: str,
+) -> Path:
+    """Every source folder keeps a hub, created with its first note."""
+    titulo = _as_str(meta.get("titulo"))
+    if not moc_path.exists():
+        root = dominio.split("/")[0]
+        fm = [
+            "---",
+            "tipo: moc",
+            "status: ativo",
+            f"created: {_today_iso()}",
+            f"updated: {_today_iso()}",
+            "tags:",
+            "  - moc",
+            f"  - {dominio.lower()}",
+            f"  - {canal_slug_str.lower()}",
+            f'moc: "[[MOC-{root}]]"',
+            "---",
+        ]
+        moc_path.write_text(
+            "\n".join(fm)
+            + f"\n\n# MOC {canal}\n\n"
+            + f"Hub da fonte. Card vivo: [[{canal_slug_str}]].\n\n"
+            + "## Literatura\n\n"
+            + f"- [[{note_stem}|{_link_alias(titulo)}]]\n",
+            encoding="utf-8",
+        )
+        return moc_path
+    _append_to_moc(moc_path, note_stem, titulo)
+    return moc_path
 
 
 def _update_moc(tema: str, meta: dict, note_stem: str) -> Optional[Path]:
@@ -505,7 +605,13 @@ def reset_dedup_index() -> None:
     _dedup_index.clear()
 
 
-def _index_dir(directory: Path, pattern: str) -> dict[str, Path]:
+_FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
+
+def _index_dir(directory: Path, pattern: str, *, frontmatter_only: bool = False) -> dict[str, Path]:
+    """`frontmatter_only`: a draft carries the video description, and creators
+    link their other videos there; matching the whole file would mark those
+    videos as already processed."""
     cached = _dedup_index.get(directory)
     if cached is not None:
         return cached
@@ -516,6 +622,9 @@ def _index_dir(directory: Path, pattern: str) -> dict[str, Path]:
                 content = f.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
+            if frontmatter_only:
+                m = _FRONTMATTER_RE.match(content)
+                content = m.group(0) if m else ""
             for rx in _VIDEO_ID_CONTENT_RES:
                 for vid in rx.findall(content):
                     index.setdefault(vid, f)
@@ -565,7 +674,7 @@ def is_video_already_processed(
         if hit is not None:
             return True, hit
 
-    hit = _index_dir(PROCESSAR_DIR, "*.draft.md").get(video_id)
+    hit = _index_dir(PROCESSAR_DIR, "*.draft.md", frontmatter_only=True).get(video_id)
     if hit is not None:
         return True, hit
 
@@ -582,7 +691,7 @@ def find_video_anywhere(video_id: str) -> Optional[Path]:
     if not video_id:
         return None
 
-    hit = _index_dir(PROCESSAR_DIR, "*.draft.md").get(video_id)
+    hit = _index_dir(PROCESSAR_DIR, "*.draft.md", frontmatter_only=True).get(video_id)
     if hit is not None:
         return hit
 

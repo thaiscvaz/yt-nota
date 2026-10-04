@@ -43,3 +43,13 @@ def isolated_registry(tmp_path_factory, monkeypatch):
     db = tmp_path_factory.mktemp("registry") / "registry.db"
     monkeypatch.setattr(cli, "DEFAULT_DB_PATH", db)
     return db
+
+
+@pytest.fixture(autouse=True)
+def isolated_quality_log(tmp_path, monkeypatch):
+    """Finalize appends a quality line per note and may load a personal writing
+    gate; keep tests off the real log and off any gate set in the environment."""
+    from yt_nota import quality
+
+    monkeypatch.setattr(quality, "DEFAULT_LOG_PATH", tmp_path / "finalize-log.jsonl")
+    monkeypatch.delenv(quality.GATE_ENV_VAR, raising=False)

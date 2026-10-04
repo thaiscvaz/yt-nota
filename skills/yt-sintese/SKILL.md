@@ -46,6 +46,8 @@ Possible values for `transcript_origem`:
 
 **(b) Generate the synthesis body** (only the 7 sections below) following ALL style rules of this skill.
 
+**(b2) Skim-and-cut pass.** Before saving, re-read only the first four words and the last sentence of every paragraph and point. Cut every closing sentence that restates its paragraph. Break any run of three items that open the same way. Check each quote in "O que mais me marcou" against the transcript line at its timestamp: it must be what was said, trimmed at most, never reworded.
+
 **(c) Write the body to a temporary file** with Write at a path like:
 ```
 <tmp-dir>/tmp_body_<draft_id>.md
@@ -56,6 +58,8 @@ Possible values for `transcript_origem`:
 yt-nota --finalize "<path_do_draft>" --body-file "<path_temp_body>"
 ```
 
+The finalize prints and logs a quality line per note (quotes found in the transcript, style findings). It never blocks. A reported finding means the pre-finalize pass missed it: fix the cause in the next draft, do not edit the finalized note.
+
 **(e) Clean up:** delete the temp body file after successful finalize (no need to delete the draft — finalize handles that).
 
 ### Step 3 — Report
@@ -65,7 +69,10 @@ Summarize what was done: how many notes generated, vault-relative paths, any fai
 ## Style rules (NON-NEGOTIABLE)
 
 - **PT-BR** always
-- **No em dash** "—". Use period, comma, colon
+- **No em dash** "—". Use period or comma
+- **No emphasis colon.** A colon opens a real list or a definition label (`**Termo:** definição`). It never follows a complete clause to restate or dramatize it ("O recurso resolve isso: entende a pergunta"). Write two sentences.
+- **No closing recap.** A paragraph or point ends on its last fact or on an implication not yet stated. Test: delete the last sentence; if nothing is lost, it was a recap.
+- **No paragraph too short to stand alone** between two full ones: merge it into a neighbour.
 - Personal tone, not formal
 - No profanity
 - No AI markers: "Vamos explorar", "Esse vídeo traz", "É interessante notar", "Em suma", "Em resumo", "Por fim"
@@ -87,7 +94,7 @@ Each section follows a **depth + readability** pattern: short paragraphs (max 3-
 
 ## O que defende
 
-**1. {Título do ponto: substantivo + verbo curto}**
+**1. {Título do ponto, sem dois-pontos: substantivo + verbo curto}**
 
 {Abertura: 2-3 linhas que estabelecem o argumento.}
 
@@ -96,8 +103,6 @@ Each section follows a **depth + readability** pattern: short paragraphs (max 3-
 - **Aspecto A:** explicação curta com valor/exemplo concreto do vídeo
 - **Aspecto B:** outro aspecto com dado
 - **Aspecto C:** etc
-
-{Fechamento opcional: 1-2 linhas conectando os aspectos.}
 
 **2. {Segundo ponto}**
 
@@ -167,9 +172,9 @@ Cada entrada tem: **termo**, definição, valor/dado se aplicável, analogia ou 
 
 ## Notas permanentes a criar
 
-- [[{Título atômico 1}]] — {ideia que merece extração futura em 1 linha}
-- [[{Título atômico 2}]] — {...}
-- [[{Título atômico 3}]] — {...}
+- [[{Título atômico 1}]]: {ideia que merece extração futura em 1 linha}
+- [[{Título atômico 2}]]: {...}
+- [[{Título atômico 3}]]: {...}
 
 (2 a 4 notas. Cada uma é um conceito atômico em frase declarativa. Devem ser titulos que sustentariam uma nota própria depois.)
 

@@ -52,6 +52,7 @@ from .registry import (
     open_registry,
 )
 from .slug import channel_slug
+from .quality import log_quality
 from .vault import (
     finalize_draft,
     find_video_anywhere,
@@ -456,6 +457,28 @@ EXPECTED_BODY_SECTIONS = (
 )
 
 
+def _report_quality(result: dict) -> None:
+    """Registra citações e estilo da nota. Informativo: nunca falha o finalize."""
+    quality = result.get("quality") or {}
+    quotes = quality.get("quotes") or {}
+    if quotes.get("total"):
+        log.info(
+            "Citações: %d literais, %d parciais, %d não encontradas no transcript, %d traduzidas.",
+            quotes["literal"],
+            quotes["parcial"],
+            quotes["nao_encontrada"],
+            quotes["traduzida"],
+        )
+        for p in quotes.get("problems", []):
+            log.warning("  Citação não encontrada no transcript: \"%s\"", p["quote"])
+    style = quality.get("style")
+    if style is not None:
+        log.info("Estilo: %s", style["summary"] or ("limpo" if style["ok"] else "com achados"))
+        for finding in style["findings"]:
+            log.warning("  %s", finding)
+    log_quality(quality, video_id=result.get("video_id") or "", note=_rel(result["note_path"]))
+
+
 def _cmd_finalize(args: argparse.Namespace) -> int:
     draft = Path(args.finalize)
     if not draft.exists():
@@ -497,6 +520,8 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
         log.info("MOC: %s", _rel(result["moc_path"]))
     if result["draft_deleted"]:
         log.info("Draft deletado.")
+
+    _report_quality(result)
 
     # Fecha o ciclo no registro: sem isso o veredicto dependia de a skill lembrar
     # de chamar `--registry mark` depois do finalize.

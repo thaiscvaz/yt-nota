@@ -15,6 +15,7 @@ O CLI **escreve no vault Obsidian apontado por `YT_NOTA_VAULT`** (variável de a
   30-Recursos/
     Pipeline/_processar/                      ← drafts pendentes de síntese
     <dominio>/<canal>/                        ← notas finais após /yt-sintese
+      MOC-<canal>.md                          ← hub da fonte (criado/atualizado pelo finalize)
       3-<id>-<slug>.md
       transcripts/3-<id>-<slug>.transcript.md
     Pessoas/<canal>.md                        ← card vivo do canal
