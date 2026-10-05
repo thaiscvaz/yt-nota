@@ -50,3 +50,6 @@ enum_err.txt
 scripts/run-*.sh
 # Hyphenated queue files too (e.g. databricks-genie-aibi-queue.txt).
 *-queue.txt
+
+# Drafts arquivados por veredicto (transcripts e curadoria pessoal).
+_archive/

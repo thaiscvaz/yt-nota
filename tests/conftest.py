@@ -53,3 +53,12 @@ def isolated_quality_log(tmp_path, monkeypatch):
 
     monkeypatch.setattr(quality, "DEFAULT_LOG_PATH", tmp_path / "finalize-log.jsonl")
     monkeypatch.delenv(quality.GATE_ENV_VAR, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def isolated_archive(tmp_path_factory, monkeypatch):
+    """A draft that leaves `_processar/` is archived; keep every test off the
+    real `_archive/drafts/`."""
+    archive = tmp_path_factory.mktemp("archive")
+    monkeypatch.setattr(config, "ARCHIVE_DIR", archive)
+    return archive

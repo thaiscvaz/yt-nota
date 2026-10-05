@@ -19,6 +19,8 @@ from typing import Optional
 import yaml
 
 from . import config
+from .archive import ArchiveError, archive_draft
+from .registry import VERDICT_FICHAMENTO
 from .config import (
     CARDS_DE_PESSOA_DIR,
     PROCESSAR_DIR,
@@ -286,11 +288,15 @@ def finalize_draft(
         transcript_lang=_as_str(transcript_lang),
     )
 
+    archive_path: Optional[Path] = None
     if delete_draft:
+        # A draft is never deleted: it is archived and verified, then removed.
+        # The CLI passes delete_draft=False and archives only after the registry
+        # write succeeded; this branch serves direct API callers.
         try:
-            draft_path.unlink()
-        except OSError:
-            pass
+            archive_path = archive_draft(draft_path, VERDICT_FICHAMENTO)
+        except ArchiveError:
+            delete_draft = False
 
     # O finalize move conteúdo (draft → nota), então qualquer índice de dedup
     # construído antes ficou stale. Reset é barato; o próximo check re-escaneia.
@@ -302,10 +308,62 @@ def finalize_draft(
         "channel_card_path": card_path,
         "moc_path": moc_path,
         "draft_deleted": delete_draft,
+        "archive_path": archive_path,
         "video_id": _as_str(meta.get("video_id")),
         "canal_slug": canal_slug_str,
         "titulo": _as_str(meta.get("titulo")),
         "quality": quality,
+    }
+
+
+def close_without_note(draft_path: Path, verdict: str, pages: list[str],
+                       *, dominio_override: Optional[str] = None) -> dict:
+    """Fecha um draft cujo veredicto não gera fichamento (PROPAGA ou ATOMICA).
+
+    O conteúdo foi para páginas da camada por assunto (`pages`, caminhos ou nomes
+    de nota). Aqui ficam as duas evidências do lado das fontes: o transcript na
+    pasta do canal e a linha no card com o veredicto e as páginas tocadas. O
+    draft não é tocado; quem arquiva é o CLI, depois de gravar o registro.
+    """
+    from .domain import resolve as resolve_dominio
+
+    meta, segments, _ = _parse_draft(draft_path)
+    canal = meta.get("canal") or "Canal-Desconhecido"
+    canal_slug_str = channel_slug(canal)
+    titulo = _as_str(meta.get("titulo")) or "Sem título"
+    slug = title_slug(titulo)
+    ts_id = meta.get("draft_id") or _now_id()
+    transcript_lang = meta.get("idioma_transcript")
+    dominio = resolve_dominio(canal_slug_str, override=dominio_override or meta.get("dominio"))
+    canal_dir = RECURSOS_DIR / dominio / canal_slug_str
+
+    page_stems = [Path(p).stem for p in pages]
+    transcript_path: Optional[Path] = None
+    if segments and transcript_lang:
+        transcripts_dir = canal_dir / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        transcript_path = transcripts_dir / f"3-{ts_id}-{slug}.transcript.md"
+        transcript_path.write_text(
+            _build_transcript_file(
+                meta, segments, ts_id, slug, transcript_lang,
+                meta.get("transcript_origem"), verdict=verdict, pages=page_stems,
+            ),
+            encoding="utf-8",
+        )
+
+    pub = _as_str(meta.get("data_publicacao")) or "sem data"
+    links = ", ".join(f"[[{s}]]" for s in page_stems)
+    line = (f"- {_link_alias(titulo)} ({pub}) · {verdict} → {links} · "
+            f"[vídeo]({_as_str(meta.get('url'))})")
+    card_path = _write_card_line(canal, canal_slug_str, meta, line)
+
+    reset_dedup_index()
+    return {
+        "transcript_path": transcript_path,
+        "channel_card_path": card_path,
+        "video_id": _as_str(meta.get("video_id")),
+        "canal_slug": canal_slug_str,
+        "titulo": titulo,
     }
 
 
@@ -384,11 +442,22 @@ def _build_transcript_file(
     slug: str,
     lang: Optional[str],
     origem: Optional[str],
+    *,
+    verdict: Optional[str] = None,
+    pages: Optional[list[str]] = None,
 ) -> str:
-    fm = [
-        "---",
-        "tipo: transcript-bruto",
-        f'parent: "[[3-{ts_id}-{slug}]]"',
+    fm = ["---", "tipo: transcript-bruto"]
+    if verdict:
+        # No fichamento exists for this video: the transcript records where its
+        # content went instead of pointing at a parent note.
+        fm.append(f"veredicto: {verdict}")
+        if meta.get("video_id"):
+            fm.append(f"video_id: {_as_str(meta['video_id'])}")
+        fm.append("paginas:")
+        fm.extend(f'  - "[[{p}]]"' for p in (pages or []))
+    else:
+        fm.append(f'parent: "[[3-{ts_id}-{slug}]]"')
+    fm += [
         f"fonte_video: {_as_str(meta.get('url'))}",
         f"canal: {_yaml_quote(_as_str(meta.get('canal')))}",
     ]
@@ -409,10 +478,15 @@ def _update_channel_card(
     slug: str,
     note_stem: str,
 ) -> Path:
-    CARDS_DE_PESSOA_DIR.mkdir(parents=True, exist_ok=True)
-    card_path = CARDS_DE_PESSOA_DIR / f"{canal_slug_str}.md"
     pub = _as_str(meta.get("data_publicacao")) or "sem data"
     line = f"- [[{note_stem}|{_link_alias(_as_str(meta.get('titulo')))}]] ({pub})"
+    return _write_card_line(canal, canal_slug_str, meta, line)
+
+
+def _write_card_line(canal: str, canal_slug_str: str, meta: dict, line: str) -> Path:
+    """Insere `line` no topo de `## Vídeos processados` do card, criando o card se preciso."""
+    CARDS_DE_PESSOA_DIR.mkdir(parents=True, exist_ok=True)
+    card_path = CARDS_DE_PESSOA_DIR / f"{canal_slug_str}.md"
 
     if not card_path.exists():
         fm = ["---", "tipo: card-vivo", f"canal: {_yaml_quote(canal)}"]
@@ -442,6 +516,9 @@ def _update_channel_card(
         return card_path
 
     existing = card_path.read_text(encoding="utf-8")
+    if line in existing:
+        # Re-running a close after a later step failed must not duplicate the line.
+        return card_path
     existing = re.sub(
         r"^updated:.*$", f"updated: {_today_iso()}", existing, count=1, flags=re.MULTILINE
     )

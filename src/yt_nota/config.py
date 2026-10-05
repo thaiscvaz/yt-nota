@@ -32,6 +32,13 @@ LEGACY_PROCESSADOS_PATH = Path(
 # Paths resolvidos em runtime via PACKAGE_ROOT.
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Drafts que saem de _processar/ com veredicto são arquivados aqui, fora do
+# vault, e nunca apagados (ver archive.py). Uma subpasta por veredicto.
+ARCHIVE_ENV_VAR = "YT_NOTA_ARCHIVE"
+ARCHIVE_DIR = Path(
+    os.environ.get(ARCHIVE_ENV_VAR, "").strip() or PACKAGE_ROOT / "_archive" / "drafts"
+)
+
 # YAML com a taxonomia de domínios válidos. Pessoal (não versionado); cai no
 # .example.yaml (genérico, versionado) se o pessoal não existe.
 DOMINIOS_CONFIG_PATH = PACKAGE_ROOT / "config" / "domains.yaml"

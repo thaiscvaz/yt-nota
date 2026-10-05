@@ -202,6 +202,9 @@ def _finalize_args(draft: Path, body: Path, **overrides) -> argparse.Namespace:
         keep_draft=False,
         dominio=None,
         skip_body_check=False,
+        verdict="FICHAMENTO",
+        reason="fonte primária",
+        db=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)

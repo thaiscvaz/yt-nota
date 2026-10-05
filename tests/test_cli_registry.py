@@ -128,7 +128,9 @@ def test_force_bypasses_registry_dedup(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
-def test_finalize_marks_curated_with_default_verdict(tmp_path, monkeypatch, isolated_registry):
+def test_finalize_marks_curated_and_archives_draft(
+    tmp_path, monkeypatch, isolated_registry, isolated_archive
+):
     draft = _draft(tmp_path)
     body = tmp_path / "body.md"
     body.write_text(
@@ -156,8 +158,14 @@ def test_finalize_marks_curated_with_default_verdict(tmp_path, monkeypatch, isol
         keep_draft=False,
         dominio=None,
         skip_body_check=False,
+        verdict="FICHAMENTO",
+        reason="fonte primária longa",
+        db=None,
     )
+    original = draft.read_bytes()
     assert cli._cmd_finalize(args) == 0
+    assert not draft.exists()
+    assert (isolated_archive / "FICHAMENTO" / draft.name).read_bytes() == original
     row = _get(isolated_registry)
     assert (row.status, row.verdict, row.channel_name) == ("curado", "FICHAMENTO", "Some-Channel")
     assert row.vault_paths == (str(note),)
@@ -169,11 +177,13 @@ def test_discard_requires_reason_and_keeps_draft(tmp_path):
     assert draft.exists()
 
 
-def test_discard_marks_descarte_and_deletes_draft(tmp_path, isolated_registry):
+def test_discard_marks_descarte_and_archives_draft(tmp_path, isolated_registry, isolated_archive):
     draft = _draft(tmp_path)
+    original = draft.read_bytes()
     rc = cli._cmd_discard(_args(discard=[str(draft)], reason="fora do escopo"))
     assert rc == 0
     assert not draft.exists()
+    assert (isolated_archive / "DESCARTE" / draft.name).read_bytes() == original
     row = _get(isolated_registry)
     assert (row.status, row.verdict, row.verdict_reason) == ("curado", "DESCARTE", "fora do escopo")
     assert row.title == "Um título: com dois-pontos"

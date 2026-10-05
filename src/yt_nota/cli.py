@@ -6,9 +6,18 @@ Três modos, determinados por flags:
   `<vault>/30-Recursos/Literatura/Pipeline/_processar/`. A síntese acontece via skill
   `/yt-sintese` no Claude Code (zero custo de API).
 
-- `yt-nota --finalize <draft.md>` lê o draft + body sintetizado (via --body-file
-  ou stdin), escreve nota final + transcript + channel card no vault, deleta o draft.
-  Chamado pela skill.
+- `yt-nota --finalize <draft.md> --verdict FICHAMENTO --reason "..."` lê o draft +
+  body sintetizado (via --body-file ou stdin), escreve nota final + transcript +
+  channel card no vault, grava o veredicto no registro e arquiva o draft.
+
+- `yt-nota --close <draft.md> --verdict PROPAGA|ATOMICA --reason "..." --paths ...`
+  fecha um draft cujo conteúdo foi para páginas da camada por assunto: grava o
+  transcript e a linha no card, registra o veredicto e arquiva o draft.
+
+- `yt-nota --discard <draft.md> --reason "..."` grava DESCARTE e arquiva o draft.
+
+Um draft nunca é apagado: sai de `_processar/` para `_archive/drafts/<VEREDICTO>/`
+depois de o registro ser gravado e a cópia conferida.
 
 - `yt-nota --list` lista drafts pendentes.
 
@@ -28,6 +37,7 @@ from pathlib import Path
 
 from . import __version__
 from . import config
+from .archive import ArchiveError, archive_draft
 from .config import LEGACY_PROCESSADOS_PATH, PROCESSAR_DIR, VAULT_ENV_VAR, VAULT_PATH
 from .domain import DomainResolutionError, resolve as resolve_dominio
 from .extractor import (
@@ -46,14 +56,17 @@ from .registry import (
     STATUS_CURADO,
     STATUS_DESCOBERTO,
     STATUS_ERRO,
+    VERDICT_ATOMICA,
     VERDICT_DESCARTE,
     VERDICT_FICHAMENTO,
+    VERDICT_PROPAGA,
     backfill_from_processados,
     open_registry,
 )
 from .slug import channel_slug
 from .quality import log_quality
 from .vault import (
+    close_without_note,
     finalize_draft,
     find_video_anywhere,
     is_video_already_processed,
@@ -134,10 +147,14 @@ def _registry_record(
     verdict: str | None = None,
     reason: str | None = None,
     vault_paths: tuple[str, ...] = (),
-) -> None:
-    """Garante a linha do vídeo e aplica a transição pedida. Nunca levanta."""
+) -> bool:
+    """Garante a linha do vídeo e aplica a transição pedida. Nunca levanta.
+
+    Devolve True quando o registro foi gravado: quem arquiva um draft depende
+    disso para só tirá-lo do vault depois de o veredicto estar a salvo.
+    """
     if not video_id:
-        return
+        return False
     meta = dict(
         title=title or None,
         channel_id=channel_id or None,
@@ -159,6 +176,8 @@ def _registry_record(
                 reg.mark_error(video_id, reason)
     except sqlite3.Error as e:
         log.warning("  Registro não atualizado para %s: %s", video_id, e)
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +513,17 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
         log.error("Body de síntese vazio. Passe via --body-file ou stdin.")
         return 1
 
+    # AC-13: no silent default. A fichamento is the exception of the curation
+    # gate, so whoever finalizes states the verdict and why.
+    verdict = getattr(args, "verdict", None)
+    reason = getattr(args, "reason", None)
+    if verdict != VERDICT_FICHAMENTO or not reason:
+        log.error(
+            "--finalize exige --verdict FICHAMENTO e --reason. Draft preservado. "
+            "Para PROPAGA ou ATOMICA use --close; para DESCARTE use --discard."
+        )
+        return 1
+
     if not args.skip_body_check:
         missing = [s for s in EXPECTED_BODY_SECTIONS if s not in body]
         if missing:
@@ -508,7 +538,7 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
         draft,
         body,
         no_channel_card=args.no_channel_card,
-        delete_draft=not args.keep_draft,
+        delete_draft=False,  # archived below, after the registry write
         dominio_override=args.dominio,
     )
     log.info("Nota: %s", _rel(result["note_path"]))
@@ -518,28 +548,93 @@ def _cmd_finalize(args: argparse.Namespace) -> int:
         log.info("Channel card: %s", _rel(result["channel_card_path"]))
     if result["moc_path"]:
         log.info("MOC: %s", _rel(result["moc_path"]))
-    if result["draft_deleted"]:
-        log.info("Draft deletado.")
-
     _report_quality(result)
 
     # Fecha o ciclo no registro: sem isso o veredicto dependia de a skill lembrar
     # de chamar `--registry mark` depois do finalize.
+    recorded = True
     if result.get("video_id"):
         paths = tuple(
             _rel(result[k]) for k in ("note_path", "transcript_path") if result.get(k)
         )
-        _registry_record(
+        recorded = _registry_record(
             args,
             result["video_id"],
             result.get("canal_slug") or "Canal-Desconhecido",
             title=result.get("titulo"),
             status=STATUS_CURADO,
-            verdict=getattr(args, "verdict", None) or VERDICT_FICHAMENTO,
-            reason=getattr(args, "reason", None),
+            verdict=verdict,
+            reason=reason,
             vault_paths=paths,
         )
+    if args.keep_draft:
+        return 0
+    return _archive_after_registry(draft, verdict, recorded)
+
+
+def _archive_after_registry(draft: Path, verdict: str, recorded: bool) -> int:
+    """AC-14: the draft leaves `_processar/` only with the verdict recorded and
+    a verified copy in the archive. Otherwise it stays and the command fails."""
+    if not recorded:
+        log.error("Registro não gravado; draft preservado em _processar: %s", draft.name)
+        return 1
+    try:
+        archived = archive_draft(draft, verdict)
+    except ArchiveError as e:
+        log.error("Draft preservado em _processar (%s).", e)
+        return 1
+    reset_dedup_index()
+    log.info("Draft arquivado: %s", archived)
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Modo close (vereditos sem fichamento)
+# ---------------------------------------------------------------------------
+
+def _cmd_close(args: argparse.Namespace) -> int:
+    """Fecha um draft como PROPAGA ou ATOMICA: o conteúdo já está em páginas da
+    camada por assunto; aqui ficam transcript, linha no card, registro e arquivo."""
+    draft = Path(args.close)
+    if not draft.exists():
+        draft = PROCESSAR_DIR / args.close
+    if not draft.exists():
+        log.error("Draft não encontrado: %s", args.close)
+        return 1
+    verdict = getattr(args, "verdict", None)
+    if verdict not in (VERDICT_PROPAGA, VERDICT_ATOMICA) or not args.reason:
+        log.error(
+            "--close exige --verdict PROPAGA ou ATOMICA e --reason. Draft preservado."
+        )
+        return 1
+    pages = list(args.paths or [])
+    if not pages:
+        log.error("--close exige --paths com as páginas escritas. Draft preservado.")
+        return 1
+    video_id = str(read_draft_meta(draft).get("video_id") or "")
+    if not video_id:
+        log.error("Draft sem video_id, preservado: %s", draft.name)
+        return 1
+
+    result = close_without_note(draft, verdict, pages, dominio_override=args.dominio)
+    if result["transcript_path"]:
+        log.info("Transcript: %s", _rel(result["transcript_path"]))
+    log.info("Channel card: %s", _rel(result["channel_card_path"]))
+
+    vault_paths = tuple(pages) + tuple(
+        _rel(result[k]) for k in ("transcript_path",) if result.get(k)
+    )
+    recorded = _registry_record(
+        args,
+        video_id,
+        result["canal_slug"],
+        title=result["titulo"],
+        status=STATUS_CURADO,
+        verdict=verdict,
+        reason=args.reason,
+        vault_paths=vault_paths,
+    )
+    return _archive_after_registry(draft, verdict, recorded)
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +677,7 @@ def _cmd_triage(_args: argparse.Namespace) -> int:
 
 
 def _cmd_discard(args: argparse.Namespace) -> int:
-    """Descarta drafts sem sintetizar: grava DESCARTE no registro e apaga o draft."""
+    """Descarta drafts sem sintetizar: grava DESCARTE no registro e arquiva o draft."""
     if not args.reason:
         log.error("--discard exige --reason (o motivo é o que torna o descarte auditável).")
         return 1
@@ -614,8 +709,13 @@ def _cmd_discard(args: argparse.Namespace) -> int:
             log.error("Registro não atualizado, draft preservado (%s): %s", draft.name, e)
             failures += 1
             continue
-        draft.unlink()
-        log.info("Descartado: %s (%s)", draft.name, video_id)
+        try:
+            archived = archive_draft(draft, VERDICT_DESCARTE)
+        except ArchiveError as e:
+            log.error("Veredicto gravado, mas o draft ficou em _processar (%s).", e)
+            failures += 1
+            continue
+        log.info("Descartado: %s (%s), arquivado em %s", draft.name, video_id, archived)
     reset_dedup_index()
     return 1 if failures else 0
 
@@ -897,11 +997,11 @@ def main() -> None:
     parser.add_argument("--finalize", metavar="DRAFT", help="Finalize um draft (precisa --body-file ou stdin)")
     parser.add_argument("--body-file", help="Arquivo com body sintetizado (modo finalize)")
     parser.add_argument("--no-channel-card", action="store_true", help="Pula channel card (modo finalize)")
-    parser.add_argument("--keep-draft", action="store_true", help="Não deleta o draft (modo finalize)")
+    parser.add_argument("--keep-draft", action="store_true", help="Deixa o draft em _processar (modo finalize)")
     parser.add_argument(
         "--skip-body-check",
         action="store_true",
-        help="Pula validação das 7 seções do body antes de deletar o draft (modo finalize)",
+        help="Pula validação das 7 seções do body antes de arquivar o draft (modo finalize)",
     )
 
     parser.add_argument("--list", action="store_true", help="Lista drafts pendentes")
@@ -914,7 +1014,21 @@ def main() -> None:
         "--discard",
         nargs="+",
         metavar="DRAFT",
-        help="Descarta drafts sem sintetizar: grava DESCARTE no registro e apaga o draft (exige --reason)",
+        help="Descarta drafts sem sintetizar: grava DESCARTE no registro e arquiva o draft (exige --reason)",
+    )
+    parser.add_argument(
+        "--close",
+        metavar="DRAFT",
+        help=(
+            "Fecha um draft sem fichamento (exige --verdict PROPAGA|ATOMICA, --reason e "
+            "--paths): grava transcript, linha no card e registro, e arquiva o draft"
+        ),
+    )
+    parser.add_argument(
+        "--paths",
+        nargs="+",
+        metavar="PAGINA",
+        help="Páginas da camada por assunto escritas a partir do draft (modo close)",
     )
 
     reg_group = parser.add_argument_group("registro durável")
@@ -939,13 +1053,14 @@ def main() -> None:
         choices=("DESCARTE", "PROPAGA", "ATOMICA", "FICHAMENTO"),
         help=(
             "Veredicto do portão de curadoria. Filtro em `list`; obrigatório em "
-            "`mark --status curado`; em --finalize, o veredicto gravado (default FICHAMENTO)"
+            "`mark --status curado`; obrigatório em --finalize (FICHAMENTO) e em "
+            "--close (PROPAGA ou ATOMICA)"
         ),
     )
     reg_group.add_argument(
         "--reason",
         help=(
-            "Razão do veredicto (`mark --status curado`, --finalize, --discard) "
+            "Razão do veredicto (`mark --status curado`, --finalize, --close, --discard) "
             "ou do erro (`mark --status erro`)"
         ),
     )
@@ -989,6 +1104,8 @@ def main() -> None:
         sys.exit(_cmd_triage(args))
     if args.discard:
         sys.exit(_cmd_discard(args))
+    if args.close:
+        sys.exit(_cmd_close(args))
     if args.finalize:
         sys.exit(_cmd_finalize(args))
     sys.exit(_cmd_extract(args))
