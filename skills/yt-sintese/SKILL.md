@@ -30,7 +30,22 @@ yt-nota --list
 
 If it returns "Sem drafts pendentes": stop and report that there is nothing to synthesize.
 
-### Step 2 — For each draft (in parallel where possible)
+### Step 1.5 — Curation gate (decide before writing)
+
+A full note is the exception. Each draft leaves the pending folder with one verdict and a specific reason, recorded in the yt-nota registry. A draft is never deleted: the CLI archives it under `_archive/drafts/<VERDICT>/` after the registry is written.
+
+| Verdict | When | Command |
+|---|---|---|
+| `DESCARTE` | Promotion, news reaction with no method, a rehash with nothing new, fewer than two extractable claims | `yt-nota --discard "<draft>" --reason "<why>"` |
+| `PROPAGA` | Refines, confirms or contradicts pages you already keep on the subject; no new subject | add a dated line to those pages, then `yt-nota --close "<draft>" --verdict PROPAGA --reason "<what it adds>" --paths <page>...` |
+| `ATOMICA` | Introduces a subject with no page yet | create the page, then `yt-nota --close "<draft>" --verdict ATOMICA --reason "<the new subject>" --paths <new-page>...` |
+| `FICHAMENTO` | Long-form primary source worth quoting later | Step 2 |
+
+`--close` writes the transcript next to the channel's notes, adds a line to the channel card with the verdict and the pages, records the registry row and archives the draft. One verdict per video, by precedence `FICHAMENTO`, `ATOMICA`, `PROPAGA`, `DESCARTE`. `yt-nota --triage` lists pending drafts as TSV (id, channel, duration, date, title) so duration and title cuts cost no transcript read.
+
+### Step 2 — FICHAMENTO only: synthesize and finalize
+
+Run this step only for drafts whose verdict is `FICHAMENTO`.
 
 **(a) Read the draft:** use the Read tool on the draft path.
 
@@ -55,16 +70,16 @@ Possible values for `transcript_origem`:
 
 **(d) Call finalize:**
 ```bash
-yt-nota --finalize "<path_do_draft>" --body-file "<path_temp_body>"
+yt-nota --finalize "<path_do_draft>" --body-file "<path_temp_body>" --verdict FICHAMENTO --reason "<why it deserves a full note>"
 ```
 
 The finalize prints and logs a quality line per note (quotes found in the transcript, style findings). It never blocks. A reported finding means the pre-finalize pass missed it: fix the cause in the next draft, do not edit the finalized note.
 
-**(e) Clean up:** delete the temp body file after successful finalize (no need to delete the draft — finalize handles that).
+**(e) Clean up:** delete the temp body file after a successful finalize. Do not touch the draft: the CLI archives it after writing the registry.
 
 ### Step 3 — Report
 
-Summarize what was done: how many notes generated, vault-relative paths, any failures.
+Summarize what was done: one row per draft with its verdict and reason, the pages or notes written, and any failure.
 
 ## Style rules (NON-NEGOTIABLE)
 
