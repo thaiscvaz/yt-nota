@@ -19,6 +19,7 @@ Tudo que muda nesse projeto vai aqui. Formato baseado em [Keep a Changelog](http
 - **Sem travessão nos textos gerados pelo CLI**: título da nota, cabeçalho do draft e do transcript, linha do card do canal (agora `[[nota|Título]] (data)`).
 
 ### Corrigido
+- **Vídeo público dado como "not available".** Sem runtime de JavaScript, o cliente padrão do yt-dlp recebe `UNPLAYABLE` em alguns vídeos curtos e levanta "This video is not available" por falta de formatos, embora título e duração tenham vindo. O extrator só precisa de metadados e legendas, então liga `ignore_no_formats_error`; erros de vídeo removido ou privado continuam levantando. Três shorts da A Cara da Riqueza ficaram uma semana em `descoberto` assim, e toda rotina terminou com código 1. Três testes novos (280 no total).
 - **Dedup pulava vídeo citado na descrição de outro.** O índice dos drafts casava `v=<id>` no arquivo inteiro, e a descrição do vídeo fica no draft; canal que linka os próprios vídeos perdia esses vídeos, contados como "já processados". Em drafts o índice agora lê só o frontmatter.
 
 ### Adicionado

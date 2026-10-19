@@ -50,6 +50,10 @@ def _ydl_opts(with_cookies: bool, flat_playlist: bool = False) -> dict[str, Any]
         "no_warnings": True,
         "skip_download": True,
         "noprogress": True,
+        # Metadata and caption tracks only, never media formats. Without a JS
+        # runtime the default client gets UNPLAYABLE for some short videos and
+        # yt-dlp raises "not available" although the metadata is there.
+        "ignore_no_formats_error": True,
     }
     if flat_playlist:
         opts["extract_flat"] = "in_playlist"
