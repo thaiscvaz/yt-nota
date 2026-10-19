@@ -134,6 +134,9 @@ def _transcribe_audio(audio_path: Path, *, model_size: str, language: Optional[s
         "is_auto": True,
         "origin": "whisper-local",
         "segments": segments,
+        # The model actually loaded: `transcribe_from_video` may have replaced
+        # the requested one by the default (Projeto Buma B-09 records both).
+        "model": model_size,
     }
 
 

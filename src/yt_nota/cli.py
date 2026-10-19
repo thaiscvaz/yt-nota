@@ -61,7 +61,10 @@ from .registry import (
     VERDICT_FICHAMENTO,
     VERDICT_PROPAGA,
     backfill_from_processados,
+    new_attempt_id,
     open_registry,
+    software_version,
+    text_measures,
 )
 from .slug import channel_slug
 from .quality import log_quality
@@ -115,6 +118,12 @@ def _registry_db(args: argparse.Namespace) -> Path:
     return Path(getattr(args, "db", None) or DEFAULT_DB_PATH)
 
 
+def _open_for(args: argparse.Namespace, db_path: Path, *, readonly: bool):
+    """open_registry, read-only when asked. The keyword is passed only for
+    read-only opens, so a normal open keeps exactly its previous call."""
+    return open_registry(db_path, readonly=True) if readonly else open_registry(db_path)
+
+
 def _registry_done_ids(args: argparse.Namespace) -> set[str]:
     """video_ids que o registro já dá por baixados ou curados.
 
@@ -122,7 +131,8 @@ def _registry_done_ids(args: argparse.Namespace) -> set[str]:
     ser baixado. `historico` também: procedência incerta, o vault decide.
     """
     try:
-        with open_registry(_registry_db(args)) as reg:
+        # A dry run only reads: open read-only, so it never creates or migrates.
+        with _open_for(args, _registry_db(args), readonly=bool(getattr(args, "dry_run", False))) as reg:
             return {
                 v.video_id
                 for status in (STATUS_BAIXADO, STATUS_CURADO)
@@ -180,6 +190,40 @@ def _registry_record(
     return True
 
 
+def _registry_event(
+    args: argparse.Namespace,
+    case_id: str,
+    activity: str,
+    lifecycle: str,
+    *,
+    attempt_id: str | None = None,
+    decided_by: str | None = None,
+    attrs: dict | None = None,
+    objects: tuple = (),
+) -> None:
+    """Append one activity event (B-09). Never raises and writes nothing on a
+    dry run: the event log must never stop or change a run."""
+    if not case_id or getattr(args, "dry_run", False):
+        return
+    try:
+        with open_registry(_registry_db(args)) as reg:
+            reg.record_event(case_id, activity, lifecycle, attempt_id=attempt_id,
+                             decided_by=decided_by, attrs=attrs, objects=objects)
+    except (sqlite3.Error, ValueError) as e:
+        log.warning("  Evento não registrado para %s: %s", case_id, e)
+
+
+_SOFTWARE: dict | None = None
+
+
+def _software_version() -> dict:
+    """yt-nota version and commit, computed once per process (B-09)."""
+    global _SOFTWARE
+    if _SOFTWARE is None:
+        _SOFTWARE = software_version()
+    return _SOFTWARE
+
+
 # ---------------------------------------------------------------------------
 # Modo extração
 # ---------------------------------------------------------------------------
@@ -233,14 +277,23 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
     Propaga RateLimitError (caller decide parar a wave).
     """
     log.info("[%d/%d] %s", idx, total, url)
+    # B-09: metadata fetch is where unavailable videos fail; record that attempt.
+    url_vid = video_id_from_url(url) or ""
+    meta_attempt = new_attempt_id()
+    _registry_event(args, url_vid, "fetch_metadata", "start", attempt_id=meta_attempt)
     try:
         info = extract_info(url, with_cookies=args.with_cookies)
     except ExtractError as e:
         log.error("  Falha: %s", e)
+        _registry_event(args, url_vid, "fetch_metadata", "ate_abort", attempt_id=meta_attempt,
+                        attrs={"reason": "extract_error", "error": str(e)[:500]})
         return "fail"
+    _registry_event(args, url_vid, "fetch_metadata", "complete", attempt_id=meta_attempt)
 
     if is_playlist(info):
         log.error("  URL parece playlist mas não foi expandida. Pulando.")
+        _registry_event(args, url_vid, "route", "withdraw", decided_by="rule",
+                        attrs={"reason": "playlist_not_expanded"})
         return "fail"
 
     video = normalize_video_info(info)
@@ -255,11 +308,19 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
 
     # Resolução de domínio em cascata: --dominio > lookup channel_domains.yaml.
     # Sem domínio resolvido, aborta esse vídeo (regra do vault exige hierarquia).
+    # B-09: every exit of this function leaves an event, so a video never stops
+    # silently between metadata and transcription.
     try:
         dominio = resolve_dominio(canal_slug_str, override=args.dominio)
     except DomainResolutionError as e:
         log.error("  %s", e)
+        _registry_event(args, video["video_id"], "route", "ate_abort",
+                        attrs={"reason": "domain_unresolved", "channel": canal_slug_str,
+                               "error": str(e)[:500]})
         return "fail"
+    _registry_event(args, video["video_id"], "route", "complete", decided_by="rule",
+                    attrs={"channel": canal_slug_str, "dominio": dominio,
+                           "override": bool(args.dominio)})
 
     if not args.force:
         already, evidence = is_video_already_processed(
@@ -267,8 +328,15 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         )
         if already:
             log.info("  Já processado, pulando: %s", _rel(evidence) if evidence else "")
+            _registry_event(args, video["video_id"], "route", "withdraw", decided_by="rule",
+                            attrs={"reason": "already_processed",
+                                   "evidence": str(_rel(evidence)) if evidence else None})
             return "skip"
 
+    # B-09: one attempt of the `transcribe` activity, start and end linked by id.
+    attempt = new_attempt_id()
+    _registry_event(args, video["video_id"], "transcribe", "start", attempt_id=attempt,
+                    attrs={"whisper_fallback_enabled": bool(args.whisper_fallback_enabled)})
     try:
         transcript = extract_transcript(
             video,
@@ -276,8 +344,29 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
             whisper_model=args.whisper_model_resolved,
             with_cookies=args.with_cookies,
         )
-    except RateLimitError:
+    except RateLimitError as e:
+        _registry_event(args, video["video_id"], "transcribe", "ate_abort",
+                        attempt_id=attempt, attrs={"reason": "rate_limit", "error": str(e)})
         raise
+    end_attrs: dict = {"origin": None, "language": None, "segments": 0,
+                       "software": _software_version()}
+    transcript_obj: tuple = ()
+    if transcript:
+        origin = transcript.get("origin")
+        segments = transcript.get("segments") or []
+        measures = text_measures("\n".join(getattr(s, "text", str(s)) for s in segments))
+        end_attrs.update({"origin": origin, "language": transcript.get("language"),
+                          "segments": len(segments), "transcript_sha256": measures["sha256"],
+                          "transcript_words": measures["words"]})
+        if origin == "whisper-local":
+            # Requested and effective apart: the transcriber may fall back to its
+            # default; the effective one is only what it reports (null if absent).
+            end_attrs["whisper_model_requested"] = args.whisper_model_resolved
+            end_attrs["whisper_model_effective"] = transcript.get("model")
+        transcript_obj = (("transcript", f"{video['video_id']}:{measures['sha256'][:16]}",
+                           "produced"),)
+    _registry_event(args, video["video_id"], "transcribe", "complete", attempt_id=attempt,
+                    attrs=end_attrs, objects=transcript_obj)
     if transcript:
         origin = transcript.get("origin") or ("auto" if transcript.get("is_auto") else "manual")
         log.info(
@@ -308,6 +397,15 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
         dominio=dominio,
     )
     log.info("  Draft: %s", _rel(draft_path))
+    draft_attrs: dict = {"path": _rel(draft_path)}
+    try:
+        draft_attrs.update({f"draft_{k}": v for k, v in text_measures(
+            Path(draft_path).read_text(encoding="utf-8", errors="replace")).items()})
+    except OSError:
+        pass  # unreadable draft: measures stay absent, never guessed
+    _registry_event(args, video["video_id"], "write_draft", "complete", attrs=draft_attrs,
+                    objects=(*[(t, i, "input") for t, i, _ in transcript_obj],
+                             ("draft", str(_rel(draft_path)), "produced")))
     _registry_record(
         args,
         video["video_id"],
@@ -760,17 +858,36 @@ def _registry_items(args: argparse.Namespace) -> list[tuple[str, str | None]]:
     return items
 
 
+_READ_ONLY_REGISTRY_ACTIONS = frozenset({"stats", "list", "filter", "events-export"})
+
+
 def _cmd_registry(args: argparse.Namespace) -> int:
     action = args.registry
     db_path = Path(args.db) if args.db else DEFAULT_DB_PATH
+    # Reading actions and every dry run open read-only: they never create the
+    # file, migrate the schema or stamp the coverage start (B-09).
+    readonly = action in _READ_ONLY_REGISTRY_ACTIONS or bool(getattr(args, "dry_run", False))
 
-    with open_registry(db_path) as reg:
+    with _open_for(args, db_path, readonly=readonly) as reg:
         if action == "stats":
             sys.stdout.write(f"Registro: {db_path}\n")
             sys.stdout.write(f"Total de vídeos: {reg.total()}\n")
             _print_counts("Por status:", reg.counts_by_status())
             _print_counts("Por veredicto:", reg.counts_by_verdict())
             _print_counts("Por canal:", reg.counts_by_channel())
+            return 0
+
+        if action == "events-export":
+            if not args.events_out:
+                log.error("--registry events-export exige --events-out <arquivo.csv>.")
+                return 1
+            if getattr(args, "events_format", "csv") == "ocel2":
+                counts = reg.export_events_ocel2_json(args.events_out)
+                log.info("%d evento(s) e %d objeto(s) exportados em OCEL 2.0 para %s.",
+                         counts["events"], counts["objects"], args.events_out)
+                return 0
+            n = reg.export_events_csv(args.events_out)
+            log.info("%d evento(s) exportados para %s.", n, args.events_out)
             return 0
 
         if action == "list":
@@ -1034,14 +1151,18 @@ def main() -> None:
     reg_group = parser.add_argument_group("registro durável")
     reg_group.add_argument(
         "--registry",
-        choices=("stats", "list", "filter", "mark", "backfill", "adopt-drafts"),
+        choices=("stats", "list", "filter", "mark", "backfill", "adopt-drafts", "events-export"),
         help=(
             "Consulta/administra o registro do que já passou pelo pipeline. "
             "filter = imprime só os ids desconhecidos; mark = grava transição de status; "
-            "adopt-drafts = registra como `baixado` os drafts pendentes que o registro não conhece"
+            "adopt-drafts = registra como `baixado` os drafts pendentes que o registro não conhece; "
+            "events-export = grava o log de eventos em CSV (--events-out)"
         ),
     )
     reg_group.add_argument("--db", help=f"Path do registro (default: {DEFAULT_DB_PATH})")
+    reg_group.add_argument("--events-out", help="Arquivo de saída de `--registry events-export`")
+    reg_group.add_argument("--events-format", choices=("csv", "ocel2"), default="csv",
+                           help="csv (plano, uma linha por evento) ou ocel2 (OCEL 2.0 JSON)")
     reg_group.add_argument("--channel", help="Canal (filtro em `list`, obrigatório em `mark`)")
     reg_group.add_argument(
         "--status",
