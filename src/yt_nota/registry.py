@@ -451,7 +451,16 @@ class Registry:
             "SELECT object_type, object_id, qualifier FROM event_objects "
             "WHERE event_id = ? ORDER BY object_type, object_id, qualifier", (event_id,))]
 
+    def has_event_log(self) -> bool:
+        """False on a database the B-09 code has never opened for writing (schema
+        v1 read through a read-only open): event coverage has not started."""
+        return self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'events'"
+        ).fetchone() is not None
+
     def list_events(self, case_id: str | None = None) -> list[dict]:
+        if not self.has_event_log():
+            return []
         sql, params = "SELECT * FROM events", ()
         if case_id is not None:
             sql, params = sql + " WHERE case_id = ?", (case_id,)
@@ -511,14 +520,15 @@ class Registry:
 
     def export_events_csv(self, out_path: Path | str) -> int:
         """Write every event as CSV, process-mining columns first. Returns the count."""
-        rows = self._conn.execute("SELECT * FROM events ORDER BY occurred_at, event_id")
+        rows = (self._conn.execute("SELECT * FROM events ORDER BY occurred_at, event_id")
+                .fetchall() if self.has_event_log() else [])
         head = ["case_id", "activity", "lifecycle", "timestamp"] + [
             c for c in EVENT_COLUMNS if c not in ("case_id", "activity", "lifecycle")]
         n = 0
         with open(out_path, "w", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
             w.writerow(head)
-            for r in rows.fetchall():
+            for r in rows:
                 w.writerow([r["case_id"], r["activity"], r["lifecycle"], r["occurred_at"]]
                            + [r[c] for c in head[4:]])
                 n += 1

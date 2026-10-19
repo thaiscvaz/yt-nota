@@ -867,6 +867,11 @@ def _cmd_registry(args: argparse.Namespace) -> int:
     # Reading actions and every dry run open read-only: they never create the
     # file, migrate the schema or stamp the coverage start (B-09).
     readonly = action in _READ_ONLY_REGISTRY_ACTIONS or bool(getattr(args, "dry_run", False))
+    if action == "mark" and getattr(args, "dry_run", False):
+        # `mark` has no simulation mode; refuse before opening anything.
+        log.error("--registry mark não tem modo de simulação (--dry-run); nada foi gravado. "
+                  "Para ver quais ids são novos, use --registry filter.")
+        return 1
 
     with _open_for(args, db_path, readonly=readonly) as reg:
         if action == "stats":
@@ -881,6 +886,10 @@ def _cmd_registry(args: argparse.Namespace) -> int:
             if not args.events_out:
                 log.error("--registry events-export exige --events-out <arquivo.csv>.")
                 return 1
+            if not reg.has_event_log():
+                log.warning("Cobertura de eventos ainda não iniciada: %s não tem a tabela "
+                            "`events` (o código da B-09 ainda não abriu este banco para "
+                            "escrita). O arquivo sai com o log vazio.", db_path)
             if getattr(args, "events_format", "csv") == "ocel2":
                 counts = reg.export_events_ocel2_json(args.events_out)
                 log.info("%d evento(s) e %d objeto(s) exportados em OCEL 2.0 para %s.",

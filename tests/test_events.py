@@ -235,6 +235,64 @@ def test_cli_dry_runs_and_read_actions_never_touch_the_database(tmp_path):
     assert not missing.exists()
 
 
+def _registry_args(db: Path, action: str, *, dry_run: bool = False, **over) -> argparse.Namespace:
+    base = dict(db=str(db), channel=None, status=None, verdict=None, limit=None, ids=None,
+                from_file=None, reason=None, events_out=None, events_format="csv")
+    base.update(over)
+    return argparse.Namespace(registry=action, dry_run=dry_run, **base)
+
+
+@pytest.mark.parametrize("fmt", ["csv", "ocel2"])
+def test_events_export_on_v1_database_exports_empty_log(tmp_path, caplog, fmt):
+    # Thais's fourth review (P1): on a v1 database the read-only export raised
+    # `no such table: events`.
+    import json
+    db = tmp_path / "registry.db"
+    _v1_db(db)
+    before = db.read_bytes()
+    out = tmp_path / f"events.{fmt}"
+    with caplog.at_level("WARNING"):
+        rc = cli._cmd_registry(_registry_args(db, "events-export", events_out=str(out),
+                                              events_format=fmt))
+    assert rc == 0
+    assert "Cobertura de eventos ainda não iniciada" in caplog.text
+    if fmt == "csv":
+        with open(out, encoding="utf-8", newline="") as f:
+            rows = list(csv.reader(f))
+        assert rows[0][:4] == ["case_id", "activity", "lifecycle", "timestamp"] and len(rows) == 1
+    else:
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        assert doc["events"] == [] and doc["objects"] == []
+    assert db.read_bytes() == before  # still v1, byte-identical
+
+
+def test_events_export_with_coverage_started_does_not_warn(tmp_path, caplog):
+    db = tmp_path / "registry.db"
+    with open_registry(db) as r:
+        r.mark_discovered("v1", "C")
+    with caplog.at_level("WARNING"):
+        rc = cli._cmd_registry(_registry_args(db, "events-export",
+                                              events_out=str(tmp_path / "e.csv")))
+    assert rc == 0 and "Cobertura de eventos" not in caplog.text
+
+
+def test_mark_dry_run_is_refused_before_opening_the_database(tmp_path, caplog):
+    # Thais's fourth review (P2): `mark --dry-run` failed on its first write with
+    # `registry opened read-only` instead of refusing clearly.
+    db = tmp_path / "registry.db"
+    _v1_db(db)
+    before = db.read_bytes()
+    args = _registry_args(db, "mark", dry_run=True, channel="C", ids=["n1"])
+    with caplog.at_level("ERROR"):
+        assert cli._cmd_registry(args) == 1
+    assert "não tem modo de simulação" in caplog.text
+    assert db.read_bytes() == before
+    missing = tmp_path / "none.db"
+    assert cli._cmd_registry(_registry_args(missing, "mark", dry_run=True, channel="C",
+                                            ids=["n1"])) == 1
+    assert not missing.exists()
+
+
 def test_reconcile_evidence_is_kept_as_evidence_not_as_time(reg: Registry):
     reg.mark_discovered("v1", "C")
     ev = {"path": "x.md", "sha256": "abc", "mtime": "2026-01-01T00:00:00+00:00",
