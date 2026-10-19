@@ -19,7 +19,57 @@ log = logging.getLogger(__name__)
 
 
 class ExtractError(Exception):
-    pass
+    """`kind` says what happened, from the yt-dlp message (see `classify_error`)."""
+
+    def __init__(self, message: str, *, kind: str = "unknown") -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+# (kind, substrings of the lower-cased yt-dlp message), first match wins. The texts
+# are YouTube's playability reasons as yt-dlp passes them on, plus what yt-dlp adds
+# (rate-limit advice, the login hint, the captcha note). Order matters: "This content
+# isn't available, try again later" is a rate limit, "Video unavailable. This video
+# has been removed" is a removal, and only a bare "not available" stays `unavailable`,
+# the case that hid three public shorts in October 2026.
+ERROR_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("rate_limited", ("http error 429", "too many requests", "rate-limited",
+                      "try again later", "not a bot", "captcha")),
+    ("members_only", ("members-only", "channel's members", "join this channel")),
+    ("age_restricted", ("confirm your age", "age-restricted", "inappropriate for some users")),
+    ("private", ("private video", "this video is private")),
+    ("removed", ("has been removed", "account associated with this video has been terminated",
+                 "no longer available")),
+    ("geo_blocked", ("in your country", "geo restriction", "from your location")),
+    ("live_or_upcoming", ("live event will begin", "premieres in", "premiere will begin",
+                          "begin in a few moments")),
+    ("no_formats", ("requested format is not available",)),
+    ("unavailable", ("video unavailable", "is not available", "is unavailable")),
+)
+
+ERROR_KIND_TEXT = {
+    "rate_limited": "YouTube limitou as requisições (429, checagem de robô ou captcha); "
+                    "esperar antes de tentar de novo",
+    "members_only": "vídeo exclusivo para membros do canal",
+    "age_restricted": "vídeo com restrição de idade; exige login",
+    "private": "vídeo privado",
+    "removed": "vídeo removido pelo autor ou pelo YouTube",
+    "geo_blocked": "vídeo bloqueado nesta região",
+    "live_or_upcoming": "transmissão ao vivo ou estreia que ainda não aconteceu",
+    "no_formats": "o YouTube não ofereceu formato para este cliente",
+    "unavailable": "o YouTube disse que o vídeo não está disponível, sem dar o motivo; "
+                   "conferir no navegador antes de concluir que sumiu",
+    "unknown": "erro não reconhecido",
+}
+
+
+def classify_error(message: str) -> str:
+    """Kind of a yt-dlp extraction error; `unknown` when no known text matches."""
+    low = message.lower().replace("’", "'")
+    for kind, needles in ERROR_KINDS:
+        if any(n in low for n in needles):
+            return kind
+    return "unknown"
 
 
 class RateLimitError(ExtractError):
@@ -74,7 +124,9 @@ def extract_info(url: str, *, with_cookies: bool = False, flat_playlist: bool = 
                 "Falha lendo cookies do Chrome. Feche o Chrome e rode de novo, "
                 "ou rode sem --with-cookies."
             ) from e
-        raise ExtractError(f"yt-dlp falhou: {msg}") from e
+        kind = classify_error(msg)
+        raise ExtractError(f"yt-dlp falhou ({kind}: {ERROR_KIND_TEXT[kind]}): {msg}",
+                           kind=kind) from e
 
     if not info:
         raise ExtractError(f"Sem info para {url}")

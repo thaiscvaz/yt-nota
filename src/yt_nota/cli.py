@@ -286,7 +286,8 @@ def _process_single(url: str, args: argparse.Namespace, idx: int, total: int) ->
     except ExtractError as e:
         log.error("  Falha: %s", e)
         _registry_event(args, url_vid, "fetch_metadata", "ate_abort", attempt_id=meta_attempt,
-                        attrs={"reason": "extract_error", "error": str(e)[:500]})
+                        attrs={"reason": "extract_error", "error_kind": getattr(e, "kind", "unknown"),
+                               "error": str(e)[:500]})
         return "fail"
     _registry_event(args, url_vid, "fetch_metadata", "complete", attempt_id=meta_attempt)
 
